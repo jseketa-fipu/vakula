@@ -1,0 +1,177 @@
+services:
+  gateway:
+    build: .
+    command: python -m vakula.gateway_service
+    environment:
+      - GATEWAY_PORT=8000
+    ports:
+      - "8000:8000"
+
+  broker:
+    build: .
+    command: python -m vakula.weather_broker
+    environment:
+      - BROKER_PORT=8001
+    ports:
+      - "8001:8001"
+
+  degrader:
+    build: .
+    command: python -m vakula.degrade_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - TICK_SECONDS=5.0
+    depends_on:
+      - gateway
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:alpine
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - broker
+
+  # --- STATIONS (one container per physical station) ---
+
+  station-bilogora:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Bilogora
+      - PUBLIC_BASE_URL=http://station-bilogora:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-bjelovar:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Bjelovar
+      - PUBLIC_BASE_URL=http://station-bjelovar:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-daruvar:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Daruvar
+      - PUBLIC_BASE_URL=http://station-daruvar:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-dubrovnik:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Dubrovnik
+      - PUBLIC_BASE_URL=http://station-dubrovnik:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-dubrovnik-aerodrom:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Dubrovnik-aerodrom
+      - PUBLIC_BASE_URL=http://station-dubrovnik-aerodrom:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-gorice:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Gorice
+      - PUBLIC_BASE_URL=http://station-gorice:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-gospic:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Gospić
+      - PUBLIC_BASE_URL=http://station-gospic:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-gradiste:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Gradište
+      - PUBLIC_BASE_URL=http://station-gradiste:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-hvar:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Hvar
+      - PUBLIC_BASE_URL=http://station-hvar:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-karlovac:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Karlovac
+      - PUBLIC_BASE_URL=http://station-karlovac:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  # ... repeat this pattern for all other stations:
+  # Knin -> station-knin, Komiža -> station-komiza, etc.
+  # Use hyphens, no spaces or č/ć/ž/š/đ in the service name, e.g.:
+  #
+  #   station-malilosinj, station-osijek-cepin, station-sibenik,
+  #   station-varazdin, station-zagreb-gric, station-zavizan
+  #
+  # STATION_NAME stays with the original display name,
+  # PUBLIC_BASE_URL uses the service name.
