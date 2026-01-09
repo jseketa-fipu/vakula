@@ -166,6 +166,32 @@ services:
       - gateway
       - broker
 
+  station-pula:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Pula
+      - PUBLIC_BASE_URL=http://station-pula:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
+  station-pula-aerodrom:
+    build: .
+    command: python -m vakula.station_service
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_NAME=Pula-aerodrom
+      - PUBLIC_BASE_URL=http://station-pula-aerodrom:9000
+      - PORT=9000
+    depends_on:
+      - gateway
+      - broker
+
   # ... repeat this pattern for all other stations:
   # Knin -> station-knin, Komiža -> station-komiza, etc.
   # Use hyphens, no spaces or č/ć/ž/š/đ in the service name, e.g.:

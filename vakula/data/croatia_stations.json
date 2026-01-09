@@ -1,1 +1,62 @@
-[]
+[
+  {
+    "name": "Bilogora",
+    "lat": 45.883639,
+    "lon": 17.200167
+  },
+  {
+    "name": "Bjelovar",
+    "lat": 45.90975,
+    "lon": 16.85275
+  },
+  {
+    "name": "Daruvar",
+    "lat": 45.591389,
+    "lon": 17.210167
+  },
+  {
+    "name": "Dubrovnik",
+    "lat": 42.64475,
+    "lon": 18.084861
+  },
+  {
+    "name": "Dubrovnik-aerodrom",
+    "lat": 42.560111,
+    "lon": 18.263639
+  },
+  {
+    "name": "Gorice",
+    "lat": 45.223583,
+    "lon": 17.278444
+  },
+  {
+    "name": "Gospić",
+    "lat": 44.550444,
+    "lon": 15.373167
+  },
+  {
+    "name": "Gradište",
+    "lat": 45.159139,
+    "lon": 18.703444
+  },
+  {
+    "name": "Hvar",
+    "lat": 43.17075,
+    "lon": 16.43725
+  },
+  {
+    "name": "Karlovac",
+    "lat": 45.493611,
+    "lon": 15.565
+  },
+  {
+    "name": "Pula",
+    "lat": 44.865556,
+    "lon": 13.846111
+  },
+  {
+    "name": "Pula-aerodrom",
+    "lat": 44.897472,
+    "lon": 13.920222
+  }
+]

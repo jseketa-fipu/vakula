@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 # In Docker, this will be http://gateway:8000 (see docker-compose.yml)
 GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://gateway:8000")
-TICK_SECONDS = float(os.environ.get("TICK_SECONDS", "5.0"))
+TICK_SECONDS = float(os.environ.get("TICK_SECONDS", "1.0"))
 
 MODULES = ["temperature", "wind", "rain", "snow"]
 
@@ -53,7 +53,7 @@ async def main() -> None:
 
             module = random.choice(MODULES)
             amount = random.uniform(2.0, 8.0)
-            reason = f"{module} wear –{amount:.1f}%%"
+            reason = f"{module} wear –{amount:.1f}%"
 
             try:
                 r = await client.post(

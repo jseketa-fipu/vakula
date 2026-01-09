@@ -183,6 +183,8 @@ async def on_startup() -> None:
     STATION_ID = await register_with_gateway()
     logger = make_logger(f"{STATION_NAME}#{STATION_ID}")
     logger.info(f"Registered with gateway as station_id={STATION_ID}")
+    # Push initial state so the broker can show stations before any events.
+    await notify_broker()
     asyncio.create_task(heartbeat_loop())
 
 
