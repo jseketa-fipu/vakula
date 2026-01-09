@@ -1,3 +1,6 @@
+
+<img width="1024" height="1536" alt="image" src="https://github.com/user-attachments/assets/14214fa4-34c3-4f98-a498-0aac4d4fcad1" />
+
 # Vakula microservices sandbox (Docker-ready)
 
 This project simulates Croatian weather stations as microservices:
