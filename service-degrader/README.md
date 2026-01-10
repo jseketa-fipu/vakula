@@ -13,9 +13,15 @@ pip install -r requirements.txt
 ```
 
 ## Configuration
-Copy `.env.example` to `.env` and adjust as needed:
-- `GATEWAY_URL` (default: http://localhost:8000)
-- `TICK_SECONDS` (default: 5.0)
+Set required environment variables before running:
+- `GATEWAY_URL`
+- `TICK_SECONDS`
+
+Example:
+```bash
+export GATEWAY_URL=http://localhost:8000
+export TICK_SECONDS=5.0
+```
 
 ## Run
 ```bash

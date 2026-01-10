@@ -29,13 +29,13 @@ def make_logger(station_name: str):
     return StationAdapter(log, {})
 
 
-GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://gateway:8000")
-BROKER_URL = os.environ.get("BROKER_URL", "http://broker:8001")
-STATION_NAME = os.environ.get("STATION_NAME", "Unnamed station")
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://station:9000")
-PORT = int(os.environ.get("PORT", "9000"))
-STATION_LAT = os.environ.get("STATION_LAT")
-STATION_LON = os.environ.get("STATION_LON")
+GATEWAY_URL = os.environ["GATEWAY_URL"]
+BROKER_URL = os.environ["BROKER_URL"]
+STATION_NAME = os.environ["STATION_NAME"]
+PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"]
+PORT = int(os.environ["PORT"])
+STATION_LAT = os.environ["STATION_LAT"]
+STATION_LON = os.environ["STATION_LON"]
 
 MODULE_NAMES = ["temperature", "wind", "rain", "snow"]
 
@@ -140,11 +140,7 @@ def _get_module_or_404(name: str) -> ModuleState:
 
 
 def _resolve_station_id() -> int:
-    env_id = os.environ.get("STATION_ID")
-    if env_id:
-        return int(env_id)
-    # Stable ID so stations can appear immediately without gateway registration.
-    return zlib.crc32(STATION_NAME.encode("utf-8")) & 0x7FFFFFFF
+    return int(os.environ["STATION_ID"])
 
 
 async def register_with_gateway() -> bool:

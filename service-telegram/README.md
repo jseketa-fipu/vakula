@@ -13,10 +13,17 @@ pip install -r requirements.txt
 ```
 
 ## Configuration
-Copy `.env.example` to `.env` and adjust as needed:
-- `TELEGRAM_BOT_TOKEN` (required)
-- `TELEGRAM_CHAT_ID` (optional default chat id)
-- `TELEGRAM_SERVICE_PORT` (default: 8002)
+Set required environment variables before running:
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_ID`
+- `TELEGRAM_SERVICE_PORT`
+
+Example:
+```bash
+export TELEGRAM_BOT_TOKEN=your_bot_token
+export TELEGRAM_CHAT_ID=your_chat_id
+export TELEGRAM_SERVICE_PORT=8002
+```
 
 ## Run
 ```bash

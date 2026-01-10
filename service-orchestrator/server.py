@@ -18,12 +18,12 @@ log = logging.getLogger(__name__)
 
 app = FastAPI(title="Vakula Station Orchestrator")
 
-DOCKER_SOCKET = os.environ.get("DOCKER_SOCKET", "/var/run/docker.sock")
-DOCKER_API_VERSION = os.environ.get("DOCKER_API_VERSION", "v1.44")
-GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://gateway:8000")
-BROKER_URL = os.environ.get("BROKER_URL", "http://broker:8001")
-STATION_IMAGE = os.environ.get("STATION_IMAGE", "")
-ORCHESTRATOR_NETWORK = os.environ.get("ORCHESTRATOR_NETWORK", "")
+DOCKER_SOCKET = os.environ["DOCKER_SOCKET"]
+DOCKER_API_VERSION = os.environ["DOCKER_API_VERSION"]
+GATEWAY_URL = os.environ["GATEWAY_URL"]
+BROKER_URL = os.environ["BROKER_URL"]
+STATION_IMAGE = os.environ["STATION_IMAGE"]
+ORCHESTRATOR_NETWORK = os.environ["ORCHESTRATOR_NETWORK"]
 
 
 class ModuleState(BaseModel):
@@ -280,7 +280,7 @@ async def create_station(
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ.get("ORCHESTRATOR_PORT", "8003"))
+    port = int(os.environ["ORCHESTRATOR_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

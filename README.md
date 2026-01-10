@@ -91,13 +91,13 @@ flowchart LR
 └── docker-compose.yml
 ```
 
-Each microservice directory contains its own `README.md`, `requirements.txt`, and `.env.example` for local development.
+Each microservice directory contains its own `README.md` and `requirements.txt` for local development.
 
 ## Local development (per service)
 
 1. Open the service directory (e.g., `service-gateway`).
 2. Create a virtual environment and install dependencies as described in the service README.
-3. Copy `.env.example` to `.env` and update values.
+3. Export the required environment variables listed in the service README.
 4. Run `python server.py`.
 
 ## Run everything with Docker
@@ -129,7 +129,7 @@ The page will connect to the broker at `ws://localhost:8001/ws`.
 
 ## Notes
 
-- Station coordinates are loaded from `service-broker/data/croatia_stations.json`.
+- Stations are created manually by POSTing to the orchestrator `POST /api/stations`.
 - All internal service discovery uses Docker's default network:
   - `gateway` is reachable as `http://gateway:8000`
   - `broker` as `http://broker:8001`

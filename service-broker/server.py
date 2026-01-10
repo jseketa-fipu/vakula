@@ -58,8 +58,8 @@ station_meta_by_name: Dict[str, Dict[str, float]] = {}
 
 state_lock = asyncio.Lock()
 connections: List[WebSocket] = []
-STALE_TIMEOUT = int(os.environ.get("BROKER_STALE_SECONDS", "30"))
-TELEGRAM_URL = os.environ.get("TELEGRAM_URL", "http://telegram:8002")
+STALE_TIMEOUT = int(os.environ["BROKER_STALE_SECONDS"])
+TELEGRAM_URL = os.environ["TELEGRAM_URL"]
 ALERT_STATUSES = {"warn", "bad", "critical", "offline"}
 
 
@@ -272,7 +272,7 @@ async def websocket_endpoint(websocket: WebSocket):
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ.get("BROKER_PORT", "8001"))
+    port = int(os.environ["BROKER_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

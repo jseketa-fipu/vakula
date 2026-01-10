@@ -13,9 +13,9 @@ log = logging.getLogger(__name__)
 
 app = FastAPI(title="Vakula Telegram Notifier")
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 # https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id
-DEFAULT_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
+DEFAULT_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 
 class SendMessageRequest(BaseModel):
@@ -62,7 +62,7 @@ async def send_message(req: SendMessageRequest) -> SendMessageResponse:
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ.get("TELEGRAM_SERVICE_PORT", "8002"))
+    port = int(os.environ["TELEGRAM_SERVICE_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

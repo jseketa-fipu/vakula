@@ -44,7 +44,7 @@ class AdjustCommand(BaseModel):
 STATIONS: Dict[int, StationInfo] = {}
 NEXT_ID: int = 0
 
-HEARTBEAT_TIMEOUT = int(os.environ.get("HEARTBEAT_TIMEOUT_SECONDS", "60"))
+HEARTBEAT_TIMEOUT = int(os.environ["HEARTBEAT_TIMEOUT_SECONDS"])
 
 
 def _get_station_or_404(station_id: int) -> StationInfo:
@@ -133,7 +133,7 @@ async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict:
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ.get("GATEWAY_PORT", "8000"))
+    port = int(os.environ["GATEWAY_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

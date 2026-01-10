@@ -11,8 +11,8 @@ logging.basicConfig(level=logging.INFO, format="[DEGRADE] %(message)s")
 log = logging.getLogger(__name__)
 
 # In Docker, this will be http://gateway:8000 (see docker-compose.yml)
-GATEWAY_URL = os.environ.get("GATEWAY_URL", "http://gateway:8000")
-TICK_SECONDS = float(os.environ.get("TICK_SECONDS", "1.0"))
+GATEWAY_URL = os.environ["GATEWAY_URL"]
+TICK_SECONDS = float(os.environ["TICK_SECONDS"])
 
 MODULES = ["temperature", "wind", "rain", "snow"]
 

@@ -15,6 +15,7 @@ services:
     command: python /app/service-broker/server.py
     environment:
       - BROKER_PORT=8001
+      - BROKER_STALE_SECONDS=30
       - TELEGRAM_URL=http://telegram:8002
     ports:
       - "8001:8001"
@@ -36,9 +37,9 @@ services:
   telegram:
     build: .
     command: python /app/service-telegram/server.py
-    env_file:
-      - ./service-telegram/.env
     environment:
+      - TELEGRAM_BOT_TOKEN=8341017245:AAFnLprbnD418DA9PAEZz90CCXId8RsJg9w
+      - TELEGRAM_CHAT_ID=-5158729731
       - TELEGRAM_SERVICE_PORT=8002
     ports:
       - "8002:8002"
@@ -53,6 +54,7 @@ services:
       - DOCKER_API_VERSION=v1.44
       - GATEWAY_URL=http://gateway:8000
       - BROKER_URL=http://broker:8001
+      - STATION_IMAGE=
       - ORCHESTRATOR_NETWORK=vakula
       - ORCHESTRATOR_PORT=8003
     volumes:

@@ -14,13 +14,25 @@ pip install -r requirements.txt
 ```
 
 ## Configuration
-Copy `.env.example` to `.env` and adjust as needed:
-- `DOCKER_SOCKET` (default: /var/run/docker.sock)
-- `DOCKER_API_VERSION` (default: v1.43)
-- `GATEWAY_URL` (default: http://gateway:8000)
-- `BROKER_URL` (default: http://broker:8001)
-- `STATION_IMAGE` (optional: Docker image to use for new stations)
-- `ORCHESTRATOR_PORT` (default: 8003)
+Set required environment variables before running:
+- `DOCKER_SOCKET`
+- `DOCKER_API_VERSION`
+- `GATEWAY_URL`
+- `BROKER_URL`
+- `STATION_IMAGE` (can be empty to reuse the gateway image)
+- `ORCHESTRATOR_NETWORK`
+- `ORCHESTRATOR_PORT`
+
+Example:
+```bash
+export DOCKER_SOCKET=/var/run/docker.sock
+export DOCKER_API_VERSION=v1.44
+export GATEWAY_URL=http://localhost:8000
+export BROKER_URL=http://localhost:8001
+export STATION_IMAGE=
+export ORCHESTRATOR_NETWORK=vakula
+export ORCHESTRATOR_PORT=8003
+```
 
 ## Run
 ```bash

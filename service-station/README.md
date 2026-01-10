@@ -13,15 +13,27 @@ pip install -r requirements.txt
 ```
 
 ## Configuration
-Copy `.env.example` to `.env` and adjust as needed:
-- `GATEWAY_URL` (default: http://localhost:8000)
-- `BROKER_URL` (default: http://localhost:8001)
-- `STATION_NAME` (default: ExampleStation)
-- `STATION_ID` (optional: stable ID for broker/gateway)
-- `STATION_LAT` (optional: station latitude)
-- `STATION_LON` (optional: station longitude)
-- `PUBLIC_BASE_URL` (default: http://localhost:9000)
-- `PORT` (default: 9000)
+Set required environment variables before running:
+- `GATEWAY_URL`
+- `BROKER_URL`
+- `STATION_NAME`
+- `STATION_ID`
+- `STATION_LAT`
+- `STATION_LON`
+- `PUBLIC_BASE_URL`
+- `PORT`
+
+Example:
+```bash
+export GATEWAY_URL=http://localhost:8000
+export BROKER_URL=http://localhost:8001
+export STATION_NAME=ExampleStation
+export STATION_ID=1001
+export STATION_LAT=45.815
+export STATION_LON=15.982
+export PUBLIC_BASE_URL=http://localhost:9000
+export PORT=9000
+```
 
 ## Run
 ```bash

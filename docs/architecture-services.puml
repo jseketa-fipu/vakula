@@ -3,9 +3,7 @@ skinparam backgroundColor #ffffff
 skinparam shadowing false
 
 rectangle "Stations" as Stations {
-  [service-station] as S1
-  [service-station] as S2
-  [service-station] as S3
+  [service-station] as S
 }
 
 [service-gateway] as GW
@@ -18,21 +16,16 @@ rectangle "Stations" as Stations {
 [docker engine] as DOCKER
 [telegram api] as TAPI
 
-S1 --> GW : register + heartbeat
-S2 --> GW : register + heartbeat
-S3 --> GW : register + heartbeat
-DG --> GW : adjust
-GW --> S1 : adjust
-GW --> S2 : adjust
-GW --> S3 : adjust
+S --> GW : register + heartbeat
+GW --> S : adjust
+DG --> GW : list + adjust
 
-S1 --> BR : state updates
-S2 --> BR : state updates
-S3 --> BR : state updates
+S --> BR : station updates
 BR --> FE : WebSocket /ws
-Client --> ORCH : create station
-ORCH --> DOCKER : Docker API
-ORCH --> S1 : bootstrap
-BR --> TG : alerts (warn/bad/critical/offline)
+BR --> TG : alerts /api/send
 TG --> TAPI : sendMessage
+
+Client --> ORCH : create station /api/stations
+ORCH --> DOCKER : Docker API
+ORCH --> S : bootstrap
 @enduml
