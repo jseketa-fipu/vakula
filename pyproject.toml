@@ -1,7 +1,7 @@
 [project]
 name = "vakula"
 version = "0.1.0"
-description = "Weather station microservices sandbox (gateway + broker + stations + degrade)"
+description = "Weather station microservices sandbox (gateway + broker + stations + adjust)"
 authors = [
     { name = "Josip Seketa", email = "jseketa@student.unipu.hr" }
 ]

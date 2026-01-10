@@ -3,33 +3,104 @@
 
 # Vakula microservices sandbox (Docker-ready)
 
-This project simulates Croatian weather stations as microservices:
+This project simulates Croatian weather stations as microservices.
 
-- **gateway_service** (`vakula/gateway_service.py`)
+## Services
+
+- **service-gateway** (`service-gateway/server.py`)
   - API gateway / registrar for stations
   - Stations register on startup and send heartbeats
-  - Degrade / repair commands are forwarded via the gateway
+  - Adjust commands are forwarded via the gateway
 
-- **station_service** (`vakula/station_service.py`)
-  - One instance per *physical* station (40 Croatian stations)
+- **service-station** (`service-station/server.py`)
+  - One instance per *physical* station
   - Keeps per-module health (temperature / wind / rain / snow)
-  - Accepts `/degrade` and `/repair` commands
+  - Accepts `/adjust` commands (negative = degrade, positive = repair)
   - Pushes its current state to the broker
 
-- **weather_broker** (`vakula/weather_broker.py`)
+- **service-broker** (`service-broker/server.py`)
   - Central world state for the frontend
   - Receives `/api/station-update` from stations
-  - Broadcasts the full map state to the frontend over WebSocket `/ws`
+  - Broadcasts map state to the frontend over WebSocket `/ws`
 
-- **degrade_service** (`vakula/degrade_service.py`)
-  - **Separate microservice** that periodically picks a random registered
-    station and module and issues a degrade command *via the gateway*.
+- **service-degrader** (`service-degrader/server.py`)
+  - Periodically picks a random registered station and module
+  - Issues adjust commands via the gateway
+
+- **service-telegram** (`service-telegram/server.py`)
+  - Accepts a message and sends it to a Telegram chat
+
+- **service-orchestrator** (`service-orchestrator/server.py`)
+  - Creates new station containers via the Docker HTTP API (array-only payloads)
 
 - **frontend** (`frontend/index.html`)
   - Leaflet-based map of Croatia with stations colour-coded by health
   - Connects to the broker WebSocket on `ws://<host>:8001/ws`
+  - Not counted as a microservice (UI only)
 
-## Run everything with one Docker command
+## Architecture diagram
+
+```mermaid
+flowchart LR
+  subgraph Stations
+    S1[service-station]
+    S2[service-station]
+    S3[service-station]
+  end
+
+  GW[service-gateway]
+  BR[service-broker]
+  DG[service-degrader]
+  TG[service-telegram]
+  ORCH[service-orchestrator]
+  FE[frontend]
+  Client[api client]
+  DOCKER[docker engine]
+  TAPI[telegram api]
+
+  S1 -->|register + heartbeat| GW
+  S2 -->|register + heartbeat| GW
+  S3 -->|register + heartbeat| GW
+  DG -->|adjust| GW
+  GW -->|adjust| S1
+  GW -->|adjust| S2
+  GW -->|adjust| S3
+
+  S1 -->|state updates| BR
+  S2 -->|state updates| BR
+  S3 -->|state updates| BR
+  BR -->|WebSocket /ws| FE
+  Client -->|create station| ORCH
+  ORCH -->|Docker API| DOCKER
+  ORCH -->|bootstrap| S1
+  BR -->|alerts (warn/bad/critical/offline)| TG
+  TG -->|sendMessage| TAPI
+```
+
+## Repository structure
+
+```
+.
+├── service-gateway
+├── service-station
+├── service-broker
+├── service-degrader
+├── service-telegram
+├── service-orchestrator
+├── frontend
+└── docker-compose.yml
+```
+
+Each microservice directory contains its own `README.md`, `requirements.txt`, and `.env.example` for local development.
+
+## Local development (per service)
+
+1. Open the service directory (e.g., `service-gateway`).
+2. Create a virtual environment and install dependencies as described in the service README.
+3. Copy `.env.example` to `.env` and update values.
+4. Run `python server.py`.
+
+## Run everything with Docker
 
 You need **Docker** and **docker compose**.
 
@@ -43,8 +114,10 @@ This will start:
 - `gateway` on port **8000**
 - `broker` on port **8001**
 - `degrader` (no exposed port)
+- `telegram` on port **8002**
+- `orchestrator` on port **8003**
 - `frontend` on port **8080**
-- One container per Croatian station: `station_Bilogora`, `station_Bjelovar`, ...
+- One container per station (defined in `docker-compose.yml`)
 
 2. Open the frontend in your browser:
 
@@ -53,33 +126,12 @@ http://localhost:8080/index.html
 ```
 
 The page will connect to the broker at `ws://localhost:8001/ws`.
-You should see:
-
-- A map of Croatia with markers for all stations (using their real lat/lon)
-- Marker colour shows worst module health:
-  - green: > 80%
-  - yellow: > 50%
-  - orange: > 20%
-  - red: <= 20%
-- A sidebar with station list and module health
-- A small event log of the last events
-
-The **degrader** service runs independently and continuously degrades
-random modules at random stations via the gateway.
-
-To stop everything:
-
-```bash
-docker compose down
-```
 
 ## Notes
 
+- Station coordinates are loaded from `service-broker/data/croatia_stations.json`.
 - All internal service discovery uses Docker's default network:
   - `gateway` is reachable as `http://gateway:8000`
   - `broker` as `http://broker:8001`
   - Each station container as `http://station_<Name>:9000`
 - No database is used; everything is in memory.
-- For local non-Docker development you can still run the services via
-  `python -m vakula.<service>` if you set the appropriate env vars
-  (`GATEWAY_URL`, `BROKER_URL`, etc.).

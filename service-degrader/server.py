@@ -39,7 +39,7 @@ async def choose_station(client: httpx.AsyncClient) -> int | None:
 
 
 async def main() -> None:
-    log.info(f"Starting degrade service; tick={TICK_SECONDS}s; gateway={GATEWAY_URL}")
+    log.info(f"Starting adjust service; tick={TICK_SECONDS}s; gateway={GATEWAY_URL}")
     async with httpx.AsyncClient() as client:
         # Small initial delay to give gateway time to bind its port (important in Docker)
         await asyncio.sleep(3.0)
@@ -57,14 +57,14 @@ async def main() -> None:
 
             try:
                 r = await client.post(
-                    f"{GATEWAY_URL}/api/stations/{station_id}/degrade",
-                    json={"module": module, "amount": amount, "reason": reason},
+                    f"{GATEWAY_URL}/api/stations/{station_id}/adjust",
+                    json={"module": module, "amount": -amount, "reason": reason},
                     timeout=5.0,
                 )
                 r.raise_for_status()
-                log.info(f"Degraded station {station_id}: {reason}")
+                log.info(f"Adjusted station {station_id}: {reason}")
             except httpx.HTTPError as e:
-                log.warning(f"Failed to degrade station {station_id}: {e!r}")
+                log.warning(f"Failed to adjust station {station_id}: {e!r}")
 
             await asyncio.sleep(TICK_SECONDS)
 

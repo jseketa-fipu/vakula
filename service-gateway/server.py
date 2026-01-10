@@ -17,6 +17,7 @@ app = FastAPI(title="Vakula Gateway / Registrar")
 
 
 class RegistrationRequest(BaseModel):
+    station_id: int | None = None
     name: str
     base_url: str
     tags: List[str] = []
@@ -34,13 +35,7 @@ class Heartbeat(BaseModel):
     pass
 
 
-class DegradeCommand(BaseModel):
-    module: str
-    amount: float
-    reason: str | None = None
-
-
-class RepairCommand(BaseModel):
+class AdjustCommand(BaseModel):
     module: str
     amount: float
     reason: str | None = None
@@ -62,8 +57,20 @@ def _get_station_or_404(station_id: int) -> StationInfo:
 @app.post("/api/register", response_model=StationInfo)
 def register_station(req: RegistrationRequest) -> StationInfo:
     global NEXT_ID
-    station_id = NEXT_ID
-    NEXT_ID += 1
+    station_id = req.station_id if req.station_id is not None else NEXT_ID
+    if req.station_id is None:
+        NEXT_ID += 1
+    else:
+        existing = STATIONS.get(station_id)
+        if existing:
+            existing.name = req.name
+            existing.base_url = req.base_url
+            existing.tags = req.tags
+            existing.last_heartbeat = datetime.now(timezone.utc)
+            log.info(f"Updated station {station_id}: {existing.name} @ {existing.base_url}")
+            return existing
+        if station_id >= NEXT_ID:
+            NEXT_ID = station_id + 1
 
     info = StationInfo(
         id=station_id,
@@ -107,33 +114,19 @@ async def _forward_to_station(station: StationInfo, path: str, payload: dict) ->
         return r.json()
 
 
-@app.post("/api/stations/{station_id}/degrade")
-async def gateway_degrade(station_id: int, cmd: DegradeCommand) -> dict:
+@app.post("/api/stations/{station_id}/adjust")
+async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict:
     st = _get_station_or_404(station_id)
+    direction = "repair" if cmd.amount >= 0 else "degrade"
     log.info(
-        f"Forwarding degrade to station {station_id} ({st.name}): "
-        f"{cmd.module} -{cmd.amount:.1f}%"
+        f"Forwarding {direction} to station {station_id} ({st.name}): "
+        f"{cmd.module} {cmd.amount:+.1f}%"
     )
     try:
-        result = await _forward_to_station(st, "/degrade", cmd.model_dump())
+        result = await _forward_to_station(st, "/adjust", cmd.model_dump())
         return {"ok": True, "station_id": station_id, "station_response": result}
     except Exception as e:
-        log.warning(f"Failed to forward degrade to station {station_id}: {e!r}")
-        raise HTTPException(status_code=502, detail="Station unreachable")
-
-
-@app.post("/api/stations/{station_id}/repair")
-async def gateway_repair(station_id: int, cmd: RepairCommand) -> dict:
-    st = _get_station_or_404(station_id)
-    log.info(
-        f"Forwarding repair to station {station_id} ({st.name}): "
-        f"{cmd.module} +{cmd.amount:.1f}%"
-    )
-    try:
-        result = await _forward_to_station(st, "/repair", cmd.model_dump())
-        return {"ok": True, "station_id": station_id, "station_response": result}
-    except Exception as e:
-        log.warning(f"Failed to forward repair to station {station_id}: {e!r}")
+        log.warning(f"Failed to forward adjust to station {station_id}: {e!r}")
         raise HTTPException(status_code=502, detail="Station unreachable")
 
 
@@ -142,7 +135,7 @@ def main() -> None:
 
     port = int(os.environ.get("GATEWAY_PORT", "8000"))
     uvicorn.run(
-        "vakula.gateway_service:app",
+        app,
         host="0.0.0.0",
         port=port,
         reload=False,

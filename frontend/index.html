@@ -81,6 +81,7 @@
     .badge-warn { background: #92400e; }
     .badge-bad { background: #b91c1c; }
     .badge-critical { background: #7f1d1d; }
+    .badge-offline { background: #374151; }
     .badge-text {
       color: #f9fafb;
     }
@@ -165,6 +166,7 @@
       case "critical": return "#ef4444";
       case "bad": return "#f97316";
       case "warn": return "#eab308";
+      case "offline": return "#6b7280";
       default: return "#22c55e";
     }
   }
@@ -174,6 +176,7 @@
       case "critical": return "badge badge-critical badge-text";
       case "bad": return "badge badge-bad badge-text";
       case "warn": return "badge badge-warn badge-text";
+      case "offline": return "badge badge-offline badge-text";
       default: return "badge badge-ok badge-text";
     }
   }
