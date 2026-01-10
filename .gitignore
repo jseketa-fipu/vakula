@@ -1,0 +1,10 @@
+docker-compose.yml
+.env
+.env.*
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+*.log
+.vscode/
+.idea/

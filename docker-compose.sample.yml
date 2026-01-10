@@ -1,0 +1,83 @@
+services:
+  gateway:
+    build: .
+    command: python /app/service-gateway/server.py
+    environment:
+      - GATEWAY_PORT=8000
+      - HEARTBEAT_TIMEOUT_SECONDS=60
+    ports:
+      - "8000:8000"
+    networks:
+      - vakula
+
+  broker:
+    build: .
+    command: python /app/service-broker/server.py
+    environment:
+      - BROKER_PORT=8001
+      - BROKER_STALE_SECONDS=30
+      - TELEGRAM_URL=http://telegram:8002
+    ports:
+      - "8001:8001"
+    networks:
+      - vakula
+
+  degrader:
+    build: .
+    command: python /app/service-degrader/server.py
+    environment:
+      - GATEWAY_URL=http://gateway:8000
+      - TICK_SECONDS=5.0
+    depends_on:
+      - gateway
+    restart: unless-stopped
+    networks:
+      - vakula
+
+  telegram:
+    build: .
+    command: python /app/service-telegram/server.py
+    environment:
+      - TELEGRAM_BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
+      - TELEGRAM_CHAT_ID=YOUR_TELEGRAM_CHAT_ID
+      - TELEGRAM_SERVICE_PORT=8002
+    ports:
+      - "8002:8002"
+    networks:
+      - vakula
+
+  orchestrator:
+    build: .
+    command: python /app/service-orchestrator/server.py
+    environment:
+      - DOCKER_SOCKET=/var/run/docker.sock
+      - DOCKER_API_VERSION=v1.44
+      - GATEWAY_URL=http://gateway:8000
+      - BROKER_URL=http://broker:8001
+      - STATION_IMAGE=
+      - ORCHESTRATOR_NETWORK=vakula
+      - ORCHESTRATOR_PORT=8003
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8003:8003"
+    depends_on:
+      - gateway
+      - broker
+    networks:
+      - vakula
+
+  frontend:
+    image: nginx:alpine
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - broker
+    networks:
+      - vakula
+
+networks:
+  vakula:
+    name: vakula

@@ -43,9 +43,7 @@ This project simulates Croatian weather stations as microservices.
 ```mermaid
 flowchart LR
   subgraph Stations
-    S1[service-station]
-    S2[service-station]
-    S3[service-station]
+    S[service-station]
   end
 
   GW[service-gateway]
@@ -58,23 +56,18 @@ flowchart LR
   DOCKER[docker engine]
   TAPI[telegram api]
 
-  S1 -->|register + heartbeat| GW
-  S2 -->|register + heartbeat| GW
-  S3 -->|register + heartbeat| GW
-  DG -->|adjust| GW
-  GW -->|adjust| S1
-  GW -->|adjust| S2
-  GW -->|adjust| S3
+  S -->|register + heartbeat| GW
+  DG -->|list + adjust| GW
+  GW -->|adjust| S
 
-  S1 -->|state updates| BR
-  S2 -->|state updates| BR
-  S3 -->|state updates| BR
+  S -->|station updates| BR
   BR -->|WebSocket /ws| FE
+  BR -->|alerts warn/bad/critical/offline| TG
+  TG -->|sendMessage| TAPI
+
   Client -->|create station| ORCH
   ORCH -->|Docker API| DOCKER
-  ORCH -->|bootstrap| S1
-  BR -->|alerts (warn/bad/critical/offline)| TG
-  TG -->|sendMessage| TAPI
+  ORCH -->|bootstrap| S
 ```
 
 ## Repository structure
@@ -88,7 +81,7 @@ flowchart LR
 ├── service-telegram
 ├── service-orchestrator
 ├── frontend
-└── docker-compose.yml
+└── docker-compose.sample.yml
 ```
 
 Each microservice directory contains its own `README.md` and `requirements.txt` for local development.
@@ -104,7 +97,13 @@ Each microservice directory contains its own `README.md` and `requirements.txt` 
 
 You need **Docker** and **docker compose**.
 
-1. Build and start all services:
+1. Copy the sample compose file and fill in secrets:
+
+```bash
+cp docker-compose.sample.yml docker-compose.yml
+```
+
+2. Build and start all services:
 
 ```bash
 docker compose up --build
