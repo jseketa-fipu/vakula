@@ -6,7 +6,7 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from vakula_common import AdjustRequest, HttpClient, create_session, setup_logger
+from vakula_common import AdjustRequest, HttpClient, setup_logger
 
 log = setup_logger("GATEWAY")
 HTTP_CLIENT = HttpClient()
@@ -16,7 +16,7 @@ HTTP_CLIENT = HttpClient()
 async def lifespan(app: FastAPI):
     # Create one shared HTTP session for all outbound calls.
     # This keeps connections reused and avoids per-request session overhead.
-    HTTP_CLIENT.session = create_session(5)
+    HTTP_CLIENT.create_session(5)
     try:
         yield
     finally:

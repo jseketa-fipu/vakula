@@ -9,13 +9,7 @@ import aiohttp
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from vakula_common import (
-    HttpClient,
-    StationState,
-    create_session,
-    module_name,
-    setup_logger,
-)
+from vakula_common import HttpClient, StationState, module_name, setup_logger
 
 log = setup_logger("BROKER")
 HTTP_CLIENT = HttpClient()
@@ -25,7 +19,7 @@ HTTP_CLIENT = HttpClient()
 async def lifespan(app: FastAPI):
     # Start background broadcaster and set up shared HTTP session.
     # The broadcaster handles stale checks + WebSocket pushes.
-    HTTP_CLIENT.session = create_session(10)
+    HTTP_CLIENT.create_session(10)
     task = asyncio.create_task(stale_broadcast_loop())
     try:
         yield

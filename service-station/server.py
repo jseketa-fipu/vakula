@@ -12,7 +12,6 @@ from vakula_common import (
     MODULE_IDS,
     ModuleState,
     StationState,
-    create_session,
     make_logger,
     module_name,
     setup_logger,
@@ -40,7 +39,7 @@ async def lifespan(app: FastAPI):
     global logger
     logger = make_logger(log, f"{STATION_NAME}#{STATION_ID}")
     logger.info(f"Station startup id={STATION_ID}")
-    HTTP_CLIENT.session = create_session(5)
+    HTTP_CLIENT.create_session(5)
     await notify_broker()
     register_task = asyncio.create_task(register_with_gateway_loop())
     heartbeat_task = asyncio.create_task(heartbeat_loop())

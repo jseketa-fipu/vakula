@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict
-from vakula_common import HttpClient, create_session, setup_logger
+from vakula_common import HttpClient, setup_logger
 
 log = setup_logger("TELEGRAM")
 HTTP_CLIENT = HttpClient()
@@ -13,7 +13,7 @@ HTTP_CLIENT = HttpClient()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    HTTP_CLIENT.session = create_session(10)
+    HTTP_CLIENT.create_session(10)
     try:
         yield
     finally:

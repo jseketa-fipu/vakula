@@ -9,7 +9,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, field_validator
-from vakula_common import HttpClient, create_session, setup_logger
+from vakula_common import HttpClient, setup_logger
 
 log = setup_logger("ORCH")
 HTTP_CLIENT = HttpClient()
@@ -20,7 +20,7 @@ DOCKER_CLIENT = HttpClient()
 async def lifespan(app: FastAPI):
     # Create shared sessions for HTTP and Docker socket calls.
     # This avoids reconnect overhead for every request and keeps it centralized.
-    HTTP_CLIENT.session = create_session(5)
+    HTTP_CLIENT.create_session(5)
     connector = aiohttp.UnixConnector(path=DOCKER_SOCKET)
     DOCKER_CLIENT.session = aiohttp.ClientSession(
         connector=connector,
