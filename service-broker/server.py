@@ -54,7 +54,9 @@ TELEGRAM_URL = get_env_str("TELEGRAM_URL")
 ALERT_STATUSES = {"warn", "bad", "critical", "offline"}
 
 
-def _evaluate_station(station: Dict[str, Any], now: datetime) -> tuple[str, str | None, int, bool]:
+def _evaluate_station(
+    station: Dict[str, Any], now: datetime
+) -> tuple[str, str | None, int, bool]:
     # Determine a station's status based on module health and staleness.
     # Returns: status label, worst module name, worst health, is_stale.
     modules = station.get("modules", {})
@@ -91,7 +93,9 @@ async def _send_telegram_message(message: str) -> None:
         return
     payload = {"message": message}
     try:
-        async with CLIENT_SESSION.post(f"{TELEGRAM_URL}/api/send", json=payload) as resp:
+        async with CLIENT_SESSION.post(
+            f"{TELEGRAM_URL}/api/send", json=payload
+        ) as resp:
             resp.raise_for_status()
     except aiohttp.ClientError as e:
         log.warning(f"Failed to notify telegram: {e!r}")
@@ -208,7 +212,10 @@ async def station_update(update: StationState) -> Dict[str, Any]:
 
         modules = station.setdefault("modules", {})
         for name, module_state in update.modules.items():
-            modules[name] = {"health": module_state.health, "failed": module_state.failed}
+            modules[name] = {
+                "health": module_state.health,
+                "failed": module_state.failed,
+            }
 
         if update.last_event:
             station["last_event"] = update.last_event
@@ -222,7 +229,9 @@ async def station_update(update: StationState) -> Dict[str, Any]:
             and station.get("last_notified_status") != status
         ):
             station["last_notified_status"] = status
-            notify_message = _format_alert_message(station, status, worst_name, worst_health)
+            notify_message = _format_alert_message(
+                station, status, worst_name, worst_health
+            )
 
         stations[update.station_id] = station
 
