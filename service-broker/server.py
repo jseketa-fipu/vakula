@@ -9,30 +9,24 @@ import aiohttp
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from vakula_common.http import create_session
-from vakula_common.logging import setup_logger
-from vakula_common.models import StationState
-from vakula_common.modules import module_name
+from vakula_common import HttpClient, StationState, create_session, module_name, setup_logger
 
 log = setup_logger("BROKER")
-
-CLIENT_SESSION: aiohttp.ClientSession | None = None
+HTTP_CLIENT = HttpClient()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Start background broadcaster and set up shared HTTP session.
     # The broadcaster handles stale checks + WebSocket pushes.
-    global CLIENT_SESSION
-    CLIENT_SESSION = create_session(10)
+    HTTP_CLIENT.session = create_session(10)
     task = asyncio.create_task(stale_broadcast_loop())
     try:
         yield
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
-        if CLIENT_SESSION:
-            await CLIENT_SESSION.close()
+        await HTTP_CLIENT.session.close()
 
 
 app = FastAPI(title="Vakula Broker", lifespan=lifespan)
@@ -94,7 +88,7 @@ async def _send_telegram_message(message: str) -> None:
         return
     payload = {"message": message}
     try:
-        async with CLIENT_SESSION.post(
+        async with HTTP_CLIENT.session.post(
             f"{TELEGRAM_URL}/api/send", json=payload
         ) as resp:
             resp.raise_for_status()

@@ -1,32 +1,26 @@
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
-import aiohttp
 import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
-from vakula_common.http import create_session
-from vakula_common.logging import setup_logger
-from vakula_common.models import AdjustRequest
+from vakula_common import AdjustRequest, HttpClient, create_session, setup_logger
 
 log = setup_logger("GATEWAY")
-
-CLIENT_SESSION: aiohttp.ClientSession | None = None
+HTTP_CLIENT = HttpClient()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create one shared HTTP session for all outbound calls.
     # This keeps connections reused and avoids per-request session overhead.
-    global CLIENT_SESSION
-    CLIENT_SESSION = create_session(5)
+    HTTP_CLIENT.session = create_session(5)
     try:
         yield
     finally:
-        if CLIENT_SESSION:
-            await CLIENT_SESSION.close()
+        await HTTP_CLIENT.session.close()
 
 
 app = FastAPI(title="Vakula Gateway / Registrar", lifespan=lifespan)
@@ -130,7 +124,7 @@ async def _forward_to_station(station: StationInfo, path: str, payload: dict) ->
     # Send a command to the station's own API.
     # This keeps clients from needing the station URL directly.
     url = f"{station.base_url}{path}"
-    async with CLIENT_SESSION.post(url, json=payload) as resp:
+    async with HTTP_CLIENT.session.post(url, json=payload) as resp:
         resp.raise_for_status()
         return await resp.json()
 

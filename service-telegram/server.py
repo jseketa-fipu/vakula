@@ -5,23 +5,19 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict
-from vakula_common.http import create_session
-from vakula_common.logging import setup_logger
+from vakula_common import HttpClient, create_session, setup_logger
 
 log = setup_logger("TELEGRAM")
-
-CLIENT_SESSION: aiohttp.ClientSession | None = None
+HTTP_CLIENT = HttpClient()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global CLIENT_SESSION
-    CLIENT_SESSION = create_session(10)
+    HTTP_CLIENT.session = create_session(10)
     try:
         yield
     finally:
-        if CLIENT_SESSION:
-            await CLIENT_SESSION.close()
+        await HTTP_CLIENT.session.close()
 
 
 app = FastAPI(title="Vakula Telegram Notifier", lifespan=lifespan)
@@ -61,7 +57,7 @@ async def send_message(
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
-        async with CLIENT_SESSION.post(url, json=payload) as resp:
+        async with HTTP_CLIENT.session.post(url, json=payload) as resp:
             resp.raise_for_status()
             data = await resp.json()
     except aiohttp.ClientError as e:

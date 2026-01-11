@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import re
@@ -9,31 +8,29 @@ import aiohttp
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, confloat
-from vakula_common.http import create_session
-from vakula_common.logging import setup_logger
+from pydantic import BaseModel, field_validator
+from vakula_common import HttpClient, create_session, setup_logger
 
 log = setup_logger("ORCH")
-
-CLIENT_SESSION: aiohttp.ClientSession | None = None
-DOCKER_SESSION: aiohttp.ClientSession | None = None
+HTTP_CLIENT = HttpClient()
+DOCKER_CLIENT = HttpClient()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create shared sessions for HTTP and Docker socket calls.
     # This avoids reconnect overhead for every request and keeps it centralized.
-    global CLIENT_SESSION, DOCKER_SESSION
-    CLIENT_SESSION = create_session(5)
+    HTTP_CLIENT.session = create_session(5)
     connector = aiohttp.UnixConnector(path=DOCKER_SOCKET)
-    DOCKER_SESSION = aiohttp.ClientSession(connector=connector, base_url="http://docker")
+    DOCKER_CLIENT.session = aiohttp.ClientSession(
+        connector=connector,
+        base_url="http://docker",
+    )
     try:
         yield
     finally:
-        if CLIENT_SESSION:
-            await CLIENT_SESSION.close()
-        if DOCKER_SESSION:
-            await DOCKER_SESSION.close()
+        await HTTP_CLIENT.session.close()
+        await DOCKER_CLIENT.session.close()
 
 
 app = FastAPI(title="Vakula Station Orchestrator", lifespan=lifespan)
@@ -49,8 +46,22 @@ ORCHESTRATOR_NETWORK = os.environ["ORCHESTRATOR_NETWORK"]
 class CreateStationRequest(BaseModel):
     station_id: int | None = None
     name: str
-    lat: confloat(ge=-90, le=90)
-    lon: confloat(ge=-180, le=180)
+    lat: float
+    lon: float
+
+    @field_validator("lat")
+    @classmethod
+    def _validate_lat(cls, value: float) -> float:
+        if not -90 <= value <= 90:
+            raise ValueError("lat must be between -90 and 90")
+        return value
+
+    @field_validator("lon")
+    @classmethod
+    def _validate_lon(cls, value: float) -> float:
+        if not -180 <= value <= 180:
+            raise ValueError("lon must be between -180 and 180")
+        return value
 
 
 class CreateStationResponse(BaseModel):
@@ -87,7 +98,7 @@ async def _next_station_id() -> int:
     # Pick the next free station id based on broker/gateway state.
     # Broker is preferred (has full state), gateway is fallback.
     try:
-        async with CLIENT_SESSION.get(f"{BROKER_URL}/api/state") as resp:
+        async with HTTP_CLIENT.session.get(f"{BROKER_URL}/api/state") as resp:
             resp.raise_for_status()
             data = await resp.json()
             stations = data.get("stations", [])
@@ -99,7 +110,7 @@ async def _next_station_id() -> int:
         log.warning(f"Failed to fetch stations from broker: {e!r}")
 
     try:
-        async with CLIENT_SESSION.get(f"{GATEWAY_URL}/api/stations") as resp:
+        async with HTTP_CLIENT.session.get(f"{GATEWAY_URL}/api/stations") as resp:
             resp.raise_for_status()
             stations = await resp.json()
         if stations:
@@ -116,7 +127,7 @@ async def _station_exists(name: str, lat: float, lon: float) -> bool:
     # Check if a station with same name/coords already exists.
     # This prevents duplicates stacking on the same map location.
     try:
-        async with CLIENT_SESSION.get(f"{BROKER_URL}/api/state") as resp:
+        async with HTTP_CLIENT.session.get(f"{BROKER_URL}/api/state") as resp:
             resp.raise_for_status()
             data = await resp.json()
             stations = data.get("stations", [])
@@ -131,20 +142,30 @@ async def _station_exists(name: str, lat: float, lon: float) -> bool:
         log.warning(f"Failed to check existing stations: {e!r}")
     return False
 
+
 async def _docker_request(
-    method: str, path: str, *, params: dict | None = None, json_body: dict | None = None
+    method: str,
+    path: str,
+    *,
+    params: dict[str, str] | None = None,
+    json_body: dict[str, Any] | None = None,
 ) -> SimpleResponse:
     # Low-level helper for Docker HTTP API calls.
     # It tries multiple API versions for compatibility.
     versions = [DOCKER_API_VERSION, "v1.44", "v1.45", "v1.46"]
-    seen = set()
+    seen: set[str] = set()
     last_response: SimpleResponse | None = None
     for version in versions:
         if not version or version in seen:
             continue
         seen.add(version)
         url = f"/{version}{path}"
-        async with DOCKER_SESSION.request(method, url, params=params, json=json_body) as resp:
+        async with DOCKER_CLIENT.session.request(
+            method,
+            url,
+            params=params,
+            json=json_body,
+        ) as resp:
             text = await resp.text()
             try:
                 data = json.loads(text) if text else None
@@ -176,7 +197,9 @@ async def _find_compose_container(service_name: str) -> Dict[str, Any]:
     containers = r.json()
 
     if not containers:
-        raise HTTPException(status_code=502, detail=f"No container found for {service_name}")
+        raise HTTPException(
+            status_code=502, detail=f"No container found for {service_name}"
+        )
 
     for container in containers:
         labels = container.get("Labels", {})
@@ -188,7 +211,9 @@ async def _find_compose_container(service_name: str) -> Dict[str, Any]:
             if service_name in name:
                 return container
 
-    raise HTTPException(status_code=502, detail=f"No container found for {service_name}")
+    raise HTTPException(
+        status_code=502, detail=f"No container found for {service_name}"
+    )
 
 
 async def _inspect_container(container_id: str) -> Dict[str, Any]:
@@ -204,13 +229,15 @@ def _pick_network(inspect: Dict[str, Any]) -> str:
     # This ensures services can reach each other by container name.
     if ORCHESTRATOR_NETWORK:
         return ORCHESTRATOR_NETWORK
-    networks = inspect.get("NetworkSettings", {}).get("Networks", {})
+    networks: Dict[str, Any] = inspect.get("NetworkSettings", {}).get("Networks", {})
     if networks:
         return next(iter(networks.keys()))
     return "bridge"
 
 
-async def _docker_create_container(payload: Dict[str, Any], name: str) -> SimpleResponse:
+async def _docker_create_container(
+    payload: Dict[str, Any], name: str
+) -> SimpleResponse:
     # Create a container with a given name and payload.
     # This is the Docker equivalent of "docker run".
     return await _docker_request(
@@ -283,7 +310,7 @@ async def _create_station(request: CreateStationRequest) -> CreateStationRespons
             *base_env,
             f"PUBLIC_BASE_URL={base_url}",
         ]
-        payload = {
+        payload: Dict[str, Any] = {
             "Image": image_name,
             "Cmd": ["python", "/app/service-station/server.py"],
             "Env": env,
@@ -316,7 +343,9 @@ async def _create_station(request: CreateStationRequest) -> CreateStationRespons
 
     await _docker_start_container(container_id)
 
-    return CreateStationResponse(ok=True, container_id=container_id, container_name=container_name)
+    return CreateStationResponse(
+        ok=True, container_id=container_id, container_name=container_name
+    )
 
 
 @app.post("/api/stations", response_model=List[CreateStationResponse])
