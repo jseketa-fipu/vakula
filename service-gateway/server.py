@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import os
 import uvicorn
@@ -93,7 +93,7 @@ def register_station(request: RegistrationRequest) -> StationInfo:
 
 
 @app.post("/api/stations/{station_id}/heartbeat")
-def heartbeat(station_id: int, hb: Heartbeat) -> dict:
+def heartbeat(station_id: int, hb: Heartbeat) -> dict[str, bool]:
     # Mark station as alive by updating its last heartbeat time.
     # Broker uses this to filter out offline stations.
     station = _get_station_or_404(station_id)
@@ -120,7 +120,9 @@ def get_station(station_id: int) -> StationInfo:
     return _get_station_or_404(station_id)
 
 
-async def _forward_to_station(station: StationInfo, path: str, payload: dict) -> dict:
+async def _forward_to_station(
+    station: StationInfo, path: str, payload: dict[str, Any]
+) -> dict[str, Any]:
     # Send a command to the station's own API.
     # This keeps clients from needing the station URL directly.
     url = f"{station.base_url}{path}"
@@ -130,7 +132,7 @@ async def _forward_to_station(station: StationInfo, path: str, payload: dict) ->
 
 
 @app.post("/api/stations/{station_id}/adjust")
-async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict:
+async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict[str, Any]:
     # Forward an adjust command to the correct station.
     # Errors here are translated into a 502 for upstream clients.
     station = _get_station_or_404(station_id)

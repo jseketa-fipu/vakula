@@ -2,14 +2,20 @@ import asyncio
 import json
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, TypedDict, cast
 from contextlib import asynccontextmanager
 
 import aiohttp
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from vakula_common import HttpClient, StationState, create_session, module_name, setup_logger
+from vakula_common import (
+    HttpClient,
+    StationState,
+    create_session,
+    module_name,
+    setup_logger,
+)
 
 log = setup_logger("BROKER")
 HTTP_CLIENT = HttpClient()
@@ -40,7 +46,22 @@ app.add_middleware(
 )
 
 
-stations: Dict[int, Dict[str, Any]] = {}
+class StationRecordBase(TypedDict):
+    id: int
+    name: str
+    modules: dict[int, dict[str, Any]]
+
+
+class StationRecord(StationRecordBase, total=False):
+    last_update: datetime
+    lat: float | None
+    lon: float | None
+    last_event: str | None
+    status: str
+    last_notified_status: str
+
+
+stations: Dict[int, StationRecord] = {}
 
 state_lock = asyncio.Lock()
 connections: List[WebSocket] = []
@@ -50,13 +71,13 @@ ALERT_STATUSES = {"warn", "bad", "critical", "offline"}
 
 
 def _evaluate_station(
-    station: Dict[str, Any], now: datetime
-) -> tuple[str, str | None, int, bool]:
+    station: StationRecord, now: datetime
+) -> tuple[str, int | None, int, bool]:
     # Determine a station's status based on module health and staleness.
     # Returns: status label, worst module name, worst health, is_stale.
     modules = station.get("modules", {})
     worst_health = 100
-    worst_name: str | None = None
+    worst_name: int | None = None
     for name, module_state in modules.items():
         health = int(module_state.get("health", 100))
         if health < worst_health:
@@ -97,14 +118,14 @@ async def _send_telegram_message(message: str) -> None:
 
 
 def _format_alert_message(
-    station: Dict[str, Any], status: str, worst_name: str | None, worst_health: int
+    station: StationRecord, status: str, worst_name: int | None, worst_health: int
 ) -> str:
     # Build a short, human-friendly alert message.
     # Used for Telegram notifications.
     name = station.get("name", f"Station {station.get('id', '?')}")
     if status == "offline":
         module_info = f"no updates for {STALE_TIMEOUT}s"
-    elif worst_name:
+    elif worst_name is not None:
         try:
             module_label = module_name(int(worst_name))
         except (TypeError, ValueError):
@@ -196,7 +217,10 @@ async def station_update(update: StationState) -> Dict[str, Any]:
         now = datetime.now(timezone.utc)
         station = stations.get(update.station_id)
         if not station:
-            station = {"id": update.station_id, "name": update.name, "modules": {}}
+            station = cast(
+                StationRecord,
+                {"id": update.station_id, "name": update.name, "modules": {}},
+            )
 
         station["name"] = update.name
         station["last_update"] = now
