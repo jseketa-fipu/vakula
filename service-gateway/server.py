@@ -2,12 +2,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 import aiohttp
+import os
 import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
 from vakula_common.http import create_session
-from vakula_common.env import get_env_int
 from vakula_common.logging import setup_logger
 from vakula_common.models import AdjustRequest
 
@@ -56,7 +56,7 @@ class AdjustCommand(AdjustRequest):
 STATIONS: Dict[int, StationInfo] = {}
 NEXT_ID: int = 0
 
-HEARTBEAT_TIMEOUT = get_env_int("HEARTBEAT_TIMEOUT_SECONDS")
+HEARTBEAT_TIMEOUT = int(os.environ["HEARTBEAT_TIMEOUT_SECONDS"])
 
 
 def _get_station_or_404(station_id: int) -> StationInfo:
@@ -156,7 +156,7 @@ async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict:
 def main() -> None:
     # Run the API server.
     # Uvicorn handles FastAPI's async app.
-    port = get_env_int("GATEWAY_PORT")
+    port = int(os.environ["GATEWAY_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

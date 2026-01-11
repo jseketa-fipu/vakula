@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 from contextlib import asynccontextmanager
@@ -12,7 +13,6 @@ from vakula_common.http import create_session
 from vakula_common.logging import setup_logger
 from vakula_common.models import StationState
 from vakula_common.modules import module_name
-from vakula_common.env import get_env_int, get_env_str
 
 log = setup_logger("BROKER")
 
@@ -50,8 +50,8 @@ stations: Dict[int, Dict[str, Any]] = {}
 
 state_lock = asyncio.Lock()
 connections: List[WebSocket] = []
-STALE_TIMEOUT = get_env_int("BROKER_STALE_SECONDS")
-TELEGRAM_URL = get_env_str("TELEGRAM_URL")
+STALE_TIMEOUT = int(os.environ["BROKER_STALE_SECONDS"])
+TELEGRAM_URL = os.environ["TELEGRAM_URL"]
 ALERT_STATUSES = {"warn", "bad", "critical", "offline"}
 
 
@@ -275,7 +275,7 @@ async def websocket_endpoint(websocket: WebSocket):
 def main() -> None:
     # Run the API server.
     # Starts FastAPI + WebSocket server.
-    port = get_env_int("BROKER_PORT")
+    port = int(os.environ["BROKER_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

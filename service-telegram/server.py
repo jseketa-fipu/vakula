@@ -1,11 +1,11 @@
 import aiohttp
+import os
 import uvicorn
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict
 from vakula_common.http import create_session
-from vakula_common.env import get_env_int, get_env_str
 from vakula_common.logging import setup_logger
 
 log = setup_logger("TELEGRAM")
@@ -26,13 +26,13 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Vakula Telegram Notifier", lifespan=lifespan)
 
-TELEGRAM_BOT_TOKEN = get_env_str("TELEGRAM_BOT_TOKEN")
+TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 # https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id
 
 
 class SendMessageRequest(BaseModel):
     message: str
-    chat_id: str | None = None
+    chat_id: str
     parse_mode: str | None = None
 
 
@@ -41,26 +41,25 @@ class SendMessageResponse(BaseModel):
     telegram_response: Dict[Any, Any]
 
 
-def _get_chat_id(request: SendMessageRequest) -> str:
-    # Require an explicit chat_id for each request.
-    if not request.chat_id:
-        raise HTTPException(status_code=400, detail="chat_id is required")
-    return request.chat_id
+def _require_telegram_token() -> str:
+    # Fail fast when the bot token is missing.
+    if not TELEGRAM_BOT_TOKEN:
+        raise HTTPException(status_code=500, detail="TELEGRAM_BOT_TOKEN is not set")
+    return TELEGRAM_BOT_TOKEN
 
 
 @app.post("/api/send", response_model=SendMessageResponse)
-async def send_message(request: SendMessageRequest) -> SendMessageResponse:
+async def send_message(
+    request: SendMessageRequest,
+    token: str = Depends(_require_telegram_token),
+) -> SendMessageResponse:
     # Send a message to the Telegram Bot API.
     # This service is a thin wrapper around Telegram's HTTP endpoint.
-    if not TELEGRAM_BOT_TOKEN:
-        raise HTTPException(status_code=500, detail="TELEGRAM_BOT_TOKEN is not set")
-
-    chat_id = _get_chat_id(request)
-    payload = {"chat_id": chat_id, "text": request.message}
+    payload = {"chat_id": request.chat_id, "text": request.message}
     if request.parse_mode:
         payload["parse_mode"] = request.parse_mode
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
     try:
         async with CLIENT_SESSION.post(url, json=payload) as resp:
             resp.raise_for_status()
@@ -74,7 +73,7 @@ async def send_message(request: SendMessageRequest) -> SendMessageResponse:
 
 def main() -> None:
     # Run the API server.
-    port = get_env_int("TELEGRAM_SERVICE_PORT")
+    port = int(os.environ["TELEGRAM_SERVICE_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

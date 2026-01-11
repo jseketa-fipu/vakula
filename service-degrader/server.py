@@ -1,17 +1,17 @@
 import asyncio
+import os
 import random
 
 import aiohttp
 from vakula_common.modules import MODULE_IDS, module_name
 from vakula_common.http import create_session
 from vakula_common.logging import setup_logger
-from vakula_common.env import get_env_int, get_env_str
 
 log = setup_logger("DEGRADE")
 
 # In Docker, this will be http://gateway:8000 (see docker-compose.yml)
-GATEWAY_URL = get_env_str("GATEWAY_URL")
-TICK_SECONDS = get_env_int("TICK_SECONDS")
+GATEWAY_URL = os.environ["GATEWAY_URL"]
+TICK_SECONDS = int(os.environ["TICK_SECONDS"])
 
 
 async def choose_station(client: aiohttp.ClientSession) -> int | None:

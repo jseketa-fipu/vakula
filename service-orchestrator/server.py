@@ -11,7 +11,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from vakula_common.http import create_session
-from vakula_common.env import get_env_int, get_env_str
 from vakula_common.logging import setup_logger
 
 log = setup_logger("ORCH")
@@ -39,12 +38,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Vakula Station Orchestrator", lifespan=lifespan)
 
-DOCKER_SOCKET = get_env_str("DOCKER_SOCKET")
-DOCKER_API_VERSION = get_env_str("DOCKER_API_VERSION")
-GATEWAY_URL = get_env_str("GATEWAY_URL")
-BROKER_URL = get_env_str("BROKER_URL")
+DOCKER_SOCKET = os.environ["DOCKER_SOCKET"]
+DOCKER_API_VERSION = os.environ["DOCKER_API_VERSION"]
+GATEWAY_URL = os.environ["GATEWAY_URL"]
+BROKER_URL = os.environ["BROKER_URL"]
 STATION_IMAGE = os.environ.get("STATION_IMAGE", "")
-ORCHESTRATOR_NETWORK = get_env_str("ORCHESTRATOR_NETWORK")
+ORCHESTRATOR_NETWORK = os.environ["ORCHESTRATOR_NETWORK"]
 
 
 class CreateStationRequest(BaseModel):
@@ -341,7 +340,7 @@ async def create_station(
 def main() -> None:
     # Run the API server.
     # Uvicorn handles the async event loop and HTTP server.
-    port = get_env_int("ORCHESTRATOR_PORT")
+    port = int(os.environ["ORCHESTRATOR_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",

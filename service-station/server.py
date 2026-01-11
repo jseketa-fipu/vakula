@@ -11,18 +11,27 @@ from vakula_common.http import create_session
 from vakula_common.logging import make_logger, setup_logger
 from vakula_common.models import AdjustRequest, ModuleState, StationState
 from vakula_common.modules import MODULE_IDS, module_name
-from vakula_common.env import get_env_int, get_env_optional_float, get_env_str
 
 log = setup_logger("STATION")
 
 
-GATEWAY_URL = get_env_str("GATEWAY_URL")
-BROKER_URL = get_env_str("BROKER_URL")
-STATION_NAME = get_env_str("STATION_NAME")
-PUBLIC_BASE_URL = get_env_str("PUBLIC_BASE_URL")
-PORT = get_env_int("PORT")
-STATION_LAT = get_env_optional_float("STATION_LAT")
-STATION_LON = get_env_optional_float("STATION_LON")
+def _optional_float(name: str) -> float | None:
+    value = os.environ.get(name, "")
+    if not value:
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+GATEWAY_URL = os.environ["GATEWAY_URL"]
+BROKER_URL = os.environ["BROKER_URL"]
+STATION_NAME = os.environ["STATION_NAME"]
+PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"]
+PORT = int(os.environ["PORT"])
+STATION_LAT = _optional_float("STATION_LAT")
+STATION_LON = _optional_float("STATION_LON")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -90,7 +99,7 @@ def _get_module_or_404(module_id: int) -> ModuleState:
 def _resolve_station_id() -> int:
     # Read station id from environment.
     # Orchestrator sets this when it creates a container.
-    return get_env_int("STATION_ID")
+    return int(os.environ["STATION_ID"])
 
 
 def _build_station_state() -> StationState:
