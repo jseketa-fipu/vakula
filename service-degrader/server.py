@@ -31,11 +31,13 @@ async def choose_station(client: aiohttp.ClientSession) -> int | None:
     if not stations:
         return None
 
-    st = random.choice(stations)
-    return st["id"]
+    station = random.choice(stations)
+    return station["id"]
 
 
 async def main() -> None:
+    # Periodically degrade a random module on a random station.
+    # This simulates wear and tear in the system.
     log.info(f"Starting adjust service; tick={TICK_SECONDS}s; gateway={GATEWAY_URL}")
     async with create_session(5) as client:
         # Small initial delay to give gateway time to bind its port (important in Docker)

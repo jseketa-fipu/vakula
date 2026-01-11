@@ -183,52 +183,52 @@
     }
   }
 
-  function markerDataKey(st) {
+  function markerDataKey(station) {
     return [
-      st.lat,
-      st.lon,
-      st.status,
-      st.overall_health,
-      st.last_event || "",
-      st.name || "",
+      station.lat,
+      station.lon,
+      station.status,
+      station.overall_health,
+      station.last_event || "",
+      station.name || "",
     ].join("|");
   }
 
   function updateMarkers(stations) {
     const nextIds = new Set();
 
-    stations.forEach(st => {
-      if (st.lat == null || st.lon == null) return;
-      nextIds.add(st.id);
+    stations.forEach(station => {
+      if (station.lat == null || station.lon == null) return;
+      nextIds.add(station.id);
 
-      const key = markerDataKey(st);
-      const existing = markersById.get(st.id);
+      const key = markerDataKey(station);
+      const existing = markersById.get(station.id);
       if (existing && existing.key === key) {
         return;
       }
 
-      const color = colourForStatus(st.status);
+      const color = colourForStatus(station.status);
       if (existing) {
-        existing.marker.setLatLng([st.lat, st.lon]);
+        existing.marker.setLatLng([station.lat, station.lon]);
         existing.marker.setStyle({ fillColor: color });
       } else {
-        const marker = L.circleMarker([st.lat, st.lon], {
+        const marker = L.circleMarker([station.lat, station.lon], {
           radius: 7,
           weight: 1,
           color: "#000000",
           fillColor: color,
           fillOpacity: 0.9,
         }).addTo(markerLayer);
-        markersById.set(st.id, { marker, key });
+        markersById.set(station.id, { marker, key });
       }
 
-      let popupHtml = "<strong>" + st.name + "</strong><br/>";
-      popupHtml += "Health: " + st.overall_health.toFixed(1) + "%<br/>";
-      if (st.last_event) {
-        popupHtml += "<small>" + st.last_event + "</small>";
+      let popupHtml = "<strong>" + station.name + "</strong><br/>";
+      popupHtml += "Health: " + station.overall_health.toFixed(1) + "%<br/>";
+      if (station.last_event) {
+        popupHtml += "<small>" + station.last_event + "</small>";
       }
-      markersById.get(st.id).marker.bindPopup(popupHtml);
-      markersById.get(st.id).key = key;
+      markersById.get(station.id).marker.bindPopup(popupHtml);
+      markersById.get(station.id).key = key;
     });
 
     for (const [id, entry] of markersById.entries()) {
@@ -264,28 +264,28 @@
     const cards = stations
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, "hr"))
-      .map(st => {
-        const modules = st.modules || {};
+      .map(station => {
+        const modules = station.modules || {};
         const moduleChips = Object.entries(modules)
-          .map(([mId, m]) => (
+          .map(([module_id, module_state]) => (
             "<div class=\"module-chip\">" +
-              "<span>" + escapeHtml(moduleLabel(mId)) + ": </span>" +
-              "<span class=\"value\">" + Number(m.health).toFixed(0) + "%</span>" +
+              "<span>" + escapeHtml(moduleLabel(module_id)) + ": </span>" +
+              "<span class=\"value\">" + Number(module_state.health).toFixed(0) + "%</span>" +
             "</div>"
           ))
           .join("");
 
-        const lastEvent = st.last_event
+        const lastEvent = station.last_event
           ? "<div style=\"margin-top:0.2rem;font-size:0.7rem;opacity:0.85;\">" +
-              escapeHtml(st.last_event) +
+              escapeHtml(station.last_event) +
             "</div>"
           : "";
 
         return (
           "<div class=\"station-card\">" +
             "<div class=\"station-name\">" +
-              "<span>" + escapeHtml(st.name) + "</span>" +
-              "<span class=\"" + badgeClass(st.status) + "\">" + escapeHtml(st.status) + "</span>" +
+              "<span>" + escapeHtml(station.name) + "</span>" +
+              "<span class=\"" + badgeClass(station.status) + "\">" + escapeHtml(station.status) + "</span>" +
             "</div>" +
             "<div class=\"modules\">" + moduleChips + "</div>" +
             lastEvent +
@@ -311,10 +311,10 @@
     while (eventLines.length > 50) {
       eventLines.pop();
     }
-    eventsBox.innerHTML = eventLines.map(ev => (
+    eventsBox.innerHTML = eventLines.map(event => (
       "<div class=\"event-line\">" +
-        "<span class=\"event-time\">[" + escapeHtml(ev.time) + "]</span>" +
-        "<span> " + escapeHtml(ev.text) + "</span>" +
+        "<span class=\"event-time\">[" + escapeHtml(event.time) + "]</span>" +
+        "<span> " + escapeHtml(event.text) + "</span>" +
       "</div>"
     )).join("");
     eventsScheduled = false;
@@ -342,19 +342,19 @@
       setTimeout(connectWs, 2000);
     };
 
-    ws.onerror = (ev) => {
-      console.debug("WS error", ev);
+    ws.onerror = (event) => {
+      console.debug("WS error", event);
     };
 
-    ws.onmessage = (ev) => {
+    ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(ev.data);
+        const data = JSON.parse(event.data);
         const stations = data.stations || [];
         updateMarkers(stations);
         updateSidebar(stations);
-        stations.forEach(st => {
-          if (st.last_event) {
-            pushEvent(st.name + ": " + st.last_event);
+        stations.forEach(station => {
+          if (station.last_event) {
+            pushEvent(station.name + ": " + station.last_event);
           }
         });
       } catch (e) {

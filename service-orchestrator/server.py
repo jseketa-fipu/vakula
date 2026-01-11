@@ -21,6 +21,8 @@ DOCKER_SESSION: aiohttp.ClientSession | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Create shared sessions for HTTP and Docker socket calls.
+    # This avoids reconnect overhead for every request and keeps it centralized.
     global CLIENT_SESSION, DOCKER_SESSION
     CLIENT_SESSION = create_session(5)
     connector = aiohttp.UnixConnector(path=DOCKER_SOCKET)
@@ -72,6 +74,8 @@ class SimpleResponse:
 
 
 def _slugify(value: str) -> str:
+    # Turn a station name into a Docker-friendly container name.
+    # We normalize accents and replace non-alphanumerics with dashes.
     normalized = unicodedata.normalize("NFKD", value)
     ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
     ascii_value = ascii_value.lower()
@@ -80,13 +84,15 @@ def _slugify(value: str) -> str:
 
 
 async def _next_station_id() -> int:
+    # Pick the next free station id based on broker/gateway state.
+    # Broker is preferred (has full state), gateway is fallback.
     try:
         async with CLIENT_SESSION.get(f"{BROKER_URL}/api/state") as resp:
             resp.raise_for_status()
             data = await resp.json()
             stations = data.get("stations", [])
         if stations:
-            ids = [int(st["id"]) for st in stations if "id" in st]
+            ids = [int(station["id"]) for station in stations if "id" in station]
             if ids:
                 return max(ids) + 1
     except Exception as e:
@@ -97,7 +103,7 @@ async def _next_station_id() -> int:
             resp.raise_for_status()
             stations = await resp.json()
         if stations:
-            ids = [int(st["id"]) for st in stations if "id" in st]
+            ids = [int(station["id"]) for station in stations if "id" in station]
             if ids:
                 return max(ids) + 1
     except Exception as e:
@@ -107,16 +113,18 @@ async def _next_station_id() -> int:
 
 
 async def _station_exists(name: str, lat: float, lon: float) -> bool:
+    # Check if a station with same name/coords already exists.
+    # This prevents duplicates stacking on the same map location.
     try:
         async with CLIENT_SESSION.get(f"{BROKER_URL}/api/state") as resp:
             resp.raise_for_status()
             data = await resp.json()
             stations = data.get("stations", [])
-        for st in stations:
+        for station in stations:
             if (
-                st.get("name") == name
-                and st.get("lat") == lat
-                and st.get("lon") == lon
+                station.get("name") == name
+                and station.get("lat") == lat
+                and station.get("lon") == lon
             ):
                 return True
     except Exception as e:
@@ -126,6 +134,8 @@ async def _station_exists(name: str, lat: float, lon: float) -> bool:
 async def _docker_request(
     method: str, path: str, *, params: dict | None = None, json_body: dict | None = None
 ) -> SimpleResponse:
+    # Low-level helper for Docker HTTP API calls.
+    # It tries multiple API versions for compatibility.
     versions = [DOCKER_API_VERSION, "v1.44", "v1.45", "v1.46"]
     seen = set()
     last_response: SimpleResponse | None = None
@@ -151,6 +161,8 @@ async def _docker_request(
 
 
 async def _find_compose_container(service_name: str) -> Dict[str, Any]:
+    # Find a running compose container by service name.
+    # We search by Docker labels first, then fall back to name scanning.
     filters = {"label": [f"com.docker.compose.service={service_name}"]}
     r = await _docker_request(
         "GET",
@@ -180,12 +192,16 @@ async def _find_compose_container(service_name: str) -> Dict[str, Any]:
 
 
 async def _inspect_container(container_id: str) -> Dict[str, Any]:
+    # Read container details from Docker.
+    # Used to discover the network and image used by the gateway.
     r = await _docker_request("GET", f"/containers/{container_id}/json")
     r.raise_for_status()
     return r.json()
 
 
 def _pick_network(inspect: Dict[str, Any]) -> str:
+    # Use the same Docker network as the gateway.
+    # This ensures services can reach each other by container name.
     if ORCHESTRATOR_NETWORK:
         return ORCHESTRATOR_NETWORK
     networks = inspect.get("NetworkSettings", {}).get("Networks", {})
@@ -195,6 +211,8 @@ def _pick_network(inspect: Dict[str, Any]) -> str:
 
 
 async def _docker_create_container(payload: Dict[str, Any], name: str) -> SimpleResponse:
+    # Create a container with a given name and payload.
+    # This is the Docker equivalent of "docker run".
     return await _docker_request(
         "POST",
         "/containers/create",
@@ -204,11 +222,15 @@ async def _docker_create_container(payload: Dict[str, Any], name: str) -> Simple
 
 
 async def _docker_start_container(container_id: str) -> None:
+    # Start a container by id.
+    # Equivalent to "docker start".
     r = await _docker_request("POST", f"/containers/{container_id}/start")
     r.raise_for_status()
 
 
 async def _docker_remove_container(container_name: str) -> None:
+    # Remove a container by name (force).
+    # Used when a name conflict happens on creation.
     r = await _docker_request(
         "DELETE",
         f"/containers/{container_name}",
@@ -218,8 +240,10 @@ async def _docker_remove_container(container_name: str) -> None:
         r.raise_for_status()
 
 
-async def _create_station(req: CreateStationRequest) -> CreateStationResponse:
-    if await _station_exists(req.name, req.lat, req.lon):
+async def _create_station(request: CreateStationRequest) -> CreateStationResponse:
+    # Create and start a new station container.
+    # Steps: find gateway container -> pick network -> create station container.
+    if await _station_exists(request.name, request.lat, request.lon):
         raise HTTPException(
             status_code=409,
             detail="Station with same name and coordinates already exists",
@@ -231,21 +255,21 @@ async def _create_station(req: CreateStationRequest) -> CreateStationResponse:
     if not image_name:
         raise HTTPException(status_code=500, detail="Could not resolve station image")
 
-    station_id = req.station_id
+    station_id = request.station_id
     if station_id is None:
         station_id = await _next_station_id()
 
-    slug = _slugify(req.name)
+    slug = _slugify(request.name)
     if not slug:
         slug = f"station-{station_id}"
     base_name = f"station-{slug}"
     base_env = [
         f"GATEWAY_URL={GATEWAY_URL}",
         f"BROKER_URL={BROKER_URL}",
-        f"STATION_NAME={req.name}",
+        f"STATION_NAME={request.name}",
         f"STATION_ID={station_id}",
-        f"STATION_LAT={req.lat}",
-        f"STATION_LON={req.lon}",
+        f"STATION_LAT={request.lat}",
+        f"STATION_LON={request.lon}",
         "PORT=9000",
     ]
     container_id: str | None = None
@@ -297,21 +321,25 @@ async def _create_station(req: CreateStationRequest) -> CreateStationResponse:
 
 @app.post("/api/stations", response_model=List[CreateStationResponse])
 async def create_station(
-    reqs: List[CreateStationRequest],
+    requests: List[CreateStationRequest],
 ) -> List[CreateStationResponse]:
+    # Create one or more stations in a single request.
+    # If station_id is missing, we auto-assign sequential ids.
     results: List[CreateStationResponse] = []
     next_id: int | None = None
-    for req in reqs:
-        if req.station_id is None:
+    for request in requests:
+        if request.station_id is None:
             if next_id is None:
                 next_id = await _next_station_id()
-            req = req.model_copy(update={"station_id": next_id})
+            request = request.model_copy(update={"station_id": next_id})
             next_id += 1
-        results.append(await _create_station(req))
+        results.append(await _create_station(request))
     return results
 
 
 def main() -> None:
+    # Run the API server.
+    # Uvicorn handles the async event loop and HTTP server.
     import uvicorn
 
     port = get_env_int("ORCHESTRATOR_PORT")

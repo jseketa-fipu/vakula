@@ -41,22 +41,26 @@ class SendMessageResponse(BaseModel):
     telegram_response: Dict[Any, Any]
 
 
-def _get_chat_id(req: SendMessageRequest) -> str:
-    chat_id = req.chat_id or DEFAULT_CHAT_ID
+def _get_chat_id(request: SendMessageRequest) -> str:
+    # Pick the requested chat_id or fall back to the default.
+    # This allows per-message overrides if needed.
+    chat_id = request.chat_id or DEFAULT_CHAT_ID
     if not chat_id:
         raise HTTPException(status_code=400, detail="chat_id is required")
     return chat_id
 
 
 @app.post("/api/send", response_model=SendMessageResponse)
-async def send_message(req: SendMessageRequest) -> SendMessageResponse:
+async def send_message(request: SendMessageRequest) -> SendMessageResponse:
+    # Send a message to the Telegram Bot API.
+    # This service is a thin wrapper around Telegram's HTTP endpoint.
     if not TELEGRAM_BOT_TOKEN:
         raise HTTPException(status_code=500, detail="TELEGRAM_BOT_TOKEN is not set")
 
-    chat_id = _get_chat_id(req)
-    payload = {"chat_id": chat_id, "text": req.message}
-    if req.parse_mode:
-        payload["parse_mode"] = req.parse_mode
+    chat_id = _get_chat_id(request)
+    payload = {"chat_id": chat_id, "text": request.message}
+    if request.parse_mode:
+        payload["parse_mode"] = request.parse_mode
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
@@ -71,6 +75,7 @@ async def send_message(req: SendMessageRequest) -> SendMessageResponse:
 
 
 def main() -> None:
+    # Run the API server.
     import uvicorn
 
     port = get_env_int("TELEGRAM_SERVICE_PORT")
