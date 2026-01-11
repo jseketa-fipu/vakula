@@ -9,7 +9,7 @@ import aiohttp
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, confloat
 from vakula_common.http import create_session
 from vakula_common.logging import setup_logger
 
@@ -49,8 +49,8 @@ ORCHESTRATOR_NETWORK = os.environ["ORCHESTRATOR_NETWORK"]
 class CreateStationRequest(BaseModel):
     station_id: int | None = None
     name: str
-    lat: float
-    lon: float
+    lat: confloat(ge=-90, le=90)
+    lon: confloat(ge=-180, le=180)
 
 
 class CreateStationResponse(BaseModel):

@@ -15,23 +15,15 @@ from vakula_common.modules import MODULE_IDS, module_name
 log = setup_logger("STATION")
 
 
-def _optional_float(name: str) -> float | None:
-    value = os.environ.get(name, "")
-    if not value:
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
-
-
 GATEWAY_URL = os.environ["GATEWAY_URL"]
 BROKER_URL = os.environ["BROKER_URL"]
 STATION_NAME = os.environ["STATION_NAME"]
 PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"]
 PORT = int(os.environ["PORT"])
-STATION_LAT = _optional_float("STATION_LAT")
-STATION_LON = _optional_float("STATION_LON")
+_lat = os.environ.get("STATION_LAT")
+_lon = os.environ.get("STATION_LON")
+STATION_LAT = float(_lat) if _lat else None
+STATION_LON = float(_lon) if _lon else None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
