@@ -25,7 +25,7 @@ export HEARTBEAT_TIMEOUT_SECONDS=60
 
 ## Run
 ```bash
-python server.py
+PYTHONPATH=.. python server.py
 ```
 
 ## API Docs

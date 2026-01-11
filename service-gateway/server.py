@@ -1,33 +1,44 @@
-from __future__ import annotations
-
-import logging
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
-import os
-
-import httpx
+import aiohttp
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, AnyUrl
+from pydantic import BaseModel
+from contextlib import asynccontextmanager
+from vakula_common.http import create_session
+from vakula_common.env import get_env_int
+from vakula_common.logging import setup_logger
+from vakula_common.models import AdjustRequest
 
-logging.basicConfig(level=logging.INFO, format="[GATEWAY] %(message)s")
-log = logging.getLogger(__name__)
+log = setup_logger("GATEWAY")
 
-app = FastAPI(title="Vakula Gateway / Registrar")
+CLIENT_SESSION: aiohttp.ClientSession | None = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global CLIENT_SESSION
+    CLIENT_SESSION = create_session(5)
+    try:
+        yield
+    finally:
+        if CLIENT_SESSION:
+            await CLIENT_SESSION.close()
+
+
+app = FastAPI(title="Vakula Gateway / Registrar", lifespan=lifespan)
 
 
 class RegistrationRequest(BaseModel):
     station_id: int | None = None
     name: str
     base_url: str
-    tags: List[str] = []
 
 
 class StationInfo(BaseModel):
     id: int
     name: str
     base_url: str
-    tags: List[str]
     last_heartbeat: datetime
 
 
@@ -35,16 +46,14 @@ class Heartbeat(BaseModel):
     pass
 
 
-class AdjustCommand(BaseModel):
-    module: str
-    amount: float
-    reason: str | None = None
+class AdjustCommand(AdjustRequest):
+    pass
 
 
 STATIONS: Dict[int, StationInfo] = {}
 NEXT_ID: int = 0
 
-HEARTBEAT_TIMEOUT = int(os.environ["HEARTBEAT_TIMEOUT_SECONDS"])
+HEARTBEAT_TIMEOUT = get_env_int("HEARTBEAT_TIMEOUT_SECONDS")
 
 
 def _get_station_or_404(station_id: int) -> StationInfo:
@@ -65,7 +74,6 @@ def register_station(req: RegistrationRequest) -> StationInfo:
         if existing:
             existing.name = req.name
             existing.base_url = req.base_url
-            existing.tags = req.tags
             existing.last_heartbeat = datetime.now(timezone.utc)
             log.info(f"Updated station {station_id}: {existing.name} @ {existing.base_url}")
             return existing
@@ -76,7 +84,6 @@ def register_station(req: RegistrationRequest) -> StationInfo:
         id=station_id,
         name=req.name,
         base_url=req.base_url,
-        tags=req.tags,
         last_heartbeat=datetime.now(timezone.utc),
     )
     STATIONS[station_id] = info
@@ -108,10 +115,9 @@ def get_station(station_id: int) -> StationInfo:
 
 async def _forward_to_station(station: StationInfo, path: str, payload: dict) -> dict:
     url = f"{station.base_url}{path}"
-    async with httpx.AsyncClient() as client:
-        r = await client.post(url, json=payload, timeout=5.0)
-        r.raise_for_status()
-        return r.json()
+    async with CLIENT_SESSION.post(url, json=payload) as resp:
+        resp.raise_for_status()
+        return await resp.json()
 
 
 @app.post("/api/stations/{station_id}/adjust")
@@ -120,7 +126,7 @@ async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict:
     direction = "repair" if cmd.amount >= 0 else "degrade"
     log.info(
         f"Forwarding {direction} to station {station_id} ({st.name}): "
-        f"{cmd.module} {cmd.amount:+.1f}%"
+        f"{cmd.module} {cmd.amount:+d}%"
     )
     try:
         result = await _forward_to_station(st, "/adjust", cmd.model_dump())
@@ -133,7 +139,7 @@ async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict:
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ["GATEWAY_PORT"])
+    port = get_env_int("GATEWAY_PORT")
     uvicorn.run(
         app,
         host="0.0.0.0",

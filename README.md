@@ -67,7 +67,7 @@ flowchart LR
 
   Client -->|create station| ORCH
   ORCH -->|Docker API| DOCKER
-  ORCH -->|bootstrap| S
+  ORCH -->|station env| S
 ```
 
 ## Repository structure
@@ -92,6 +92,7 @@ Each microservice directory contains its own `README.md` and `requirements.txt` 
 2. Create a virtual environment and install dependencies as described in the service README.
 3. Export the required environment variables listed in the service README.
 4. Run `python server.py`.
+   Use `PYTHONPATH=.. python server.py` when running from the service directory.
 
 ## Run everything with Docker
 

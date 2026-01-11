@@ -1,21 +1,33 @@
-from __future__ import annotations
-
-import logging
-import os
-
-import httpx
+import aiohttp
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict
+from vakula_common.http import create_session
+from vakula_common.env import get_env_int, get_env_str
+from vakula_common.logging import setup_logger
 
-logging.basicConfig(level=logging.INFO, format="[TELEGRAM] %(message)s")
-log = logging.getLogger(__name__)
+log = setup_logger("TELEGRAM")
 
-app = FastAPI(title="Vakula Telegram Notifier")
+CLIENT_SESSION: aiohttp.ClientSession | None = None
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global CLIENT_SESSION
+    CLIENT_SESSION = create_session(10)
+    try:
+        yield
+    finally:
+        if CLIENT_SESSION:
+            await CLIENT_SESSION.close()
+
+
+app = FastAPI(title="Vakula Telegram Notifier", lifespan=lifespan)
+
+TELEGRAM_BOT_TOKEN = get_env_str("TELEGRAM_BOT_TOKEN")
 # https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id
-DEFAULT_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+DEFAULT_CHAT_ID = get_env_str("TELEGRAM_CHAT_ID")
 
 
 class SendMessageRequest(BaseModel):
@@ -48,11 +60,10 @@ async def send_message(req: SendMessageRequest) -> SendMessageResponse:
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(url, json=payload, timeout=10.0)
-            r.raise_for_status()
-            data = r.json()
-    except httpx.HTTPError as e:
+        async with CLIENT_SESSION.post(url, json=payload) as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+    except aiohttp.ClientError as e:
         log.warning(f"Telegram send failed: {e!r}")
         raise HTTPException(status_code=502, detail="Telegram API request failed")
 
@@ -62,7 +73,7 @@ async def send_message(req: SendMessageRequest) -> SendMessageResponse:
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ["TELEGRAM_SERVICE_PORT"])
+    port = get_env_int("TELEGRAM_SERVICE_PORT")
     uvicorn.run(
         app,
         host="0.0.0.0",

@@ -25,5 +25,5 @@ export TICK_SECONDS=5.0
 
 ## Run
 ```bash
-python server.py
+PYTHONPATH=.. python server.py
 ```

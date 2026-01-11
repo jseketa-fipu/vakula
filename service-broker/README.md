@@ -27,7 +27,7 @@ export TELEGRAM_URL=http://localhost:8002
 
 ## Run
 ```bash
-python server.py
+PYTHONPATH=.. python server.py
 ```
 
 ## API Docs

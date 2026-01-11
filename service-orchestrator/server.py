@@ -1,34 +1,47 @@
-from __future__ import annotations
-
 import asyncio
 import json
-import logging
 import os
 import re
 import unicodedata
-import zlib
 from typing import Any, Dict, List
 
-import httpx
+import aiohttp
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
+from vakula_common.http import create_session
+from vakula_common.env import get_env_int, get_env_str
+from vakula_common.logging import setup_logger
 
-logging.basicConfig(level=logging.INFO, format="[ORCH] %(message)s")
-log = logging.getLogger(__name__)
+log = setup_logger("ORCH")
 
-app = FastAPI(title="Vakula Station Orchestrator")
-
-DOCKER_SOCKET = os.environ["DOCKER_SOCKET"]
-DOCKER_API_VERSION = os.environ["DOCKER_API_VERSION"]
-GATEWAY_URL = os.environ["GATEWAY_URL"]
-BROKER_URL = os.environ["BROKER_URL"]
-STATION_IMAGE = os.environ["STATION_IMAGE"]
-ORCHESTRATOR_NETWORK = os.environ["ORCHESTRATOR_NETWORK"]
+CLIENT_SESSION: aiohttp.ClientSession | None = None
+DOCKER_SESSION: aiohttp.ClientSession | None = None
 
 
-class ModuleState(BaseModel):
-    health: float | None = None
-    failed: bool | None = None
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global CLIENT_SESSION, DOCKER_SESSION
+    CLIENT_SESSION = create_session(5)
+    connector = aiohttp.UnixConnector(path=DOCKER_SOCKET)
+    DOCKER_SESSION = aiohttp.ClientSession(connector=connector, base_url="http://docker")
+    try:
+        yield
+    finally:
+        if CLIENT_SESSION:
+            await CLIENT_SESSION.close()
+        if DOCKER_SESSION:
+            await DOCKER_SESSION.close()
+
+
+app = FastAPI(title="Vakula Station Orchestrator", lifespan=lifespan)
+
+DOCKER_SOCKET = get_env_str("DOCKER_SOCKET")
+DOCKER_API_VERSION = get_env_str("DOCKER_API_VERSION")
+GATEWAY_URL = get_env_str("GATEWAY_URL")
+BROKER_URL = get_env_str("BROKER_URL")
+STATION_IMAGE = os.environ.get("STATION_IMAGE", "")
+ORCHESTRATOR_NETWORK = get_env_str("ORCHESTRATOR_NETWORK")
 
 
 class CreateStationRequest(BaseModel):
@@ -36,14 +49,26 @@ class CreateStationRequest(BaseModel):
     name: str
     lat: float
     lon: float
-    modules: Dict[str, ModuleState] | None = None
-    tags: List[str] | None = None
 
 
 class CreateStationResponse(BaseModel):
     ok: bool
     container_id: str
     container_name: str
+
+
+class SimpleResponse:
+    def __init__(self, status_code: int, text: str, json_data: Any):
+        self.status_code = status_code
+        self.text = text
+        self._json_data = json_data
+
+    def json(self) -> Any:
+        return self._json_data
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"Docker API error {self.status_code}: {self.text}")
 
 
 def _slugify(value: str) -> str:
@@ -54,60 +79,73 @@ def _slugify(value: str) -> str:
     return ascii_value
 
 
-def _docker_client() -> httpx.AsyncClient:
-    transport = httpx.AsyncHTTPTransport(uds=DOCKER_SOCKET)
-    return httpx.AsyncClient(transport=transport, base_url="http://docker")
+async def _next_station_id() -> int:
+    try:
+        async with CLIENT_SESSION.get(f"{BROKER_URL}/api/state") as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            stations = data.get("stations", [])
+        if stations:
+            ids = [int(st["id"]) for st in stations if "id" in st]
+            if ids:
+                return max(ids) + 1
+    except Exception as e:
+        log.warning(f"Failed to fetch stations from broker: {e!r}")
+
+    try:
+        async with CLIENT_SESSION.get(f"{GATEWAY_URL}/api/stations") as resp:
+            resp.raise_for_status()
+            stations = await resp.json()
+        if stations:
+            ids = [int(st["id"]) for st in stations if "id" in st]
+            if ids:
+                return max(ids) + 1
+    except Exception as e:
+        log.warning(f"Failed to fetch stations from gateway: {e!r}")
+
+    return 1000
 
 
-async def _next_station_id(fallback_name: str) -> int:
-    async with httpx.AsyncClient() as client:
-        try:
-            r = await client.get(f"{BROKER_URL}/api/state", timeout=5.0)
-            r.raise_for_status()
-            stations = r.json().get("stations", [])
-            if stations:
-                ids = [int(st["id"]) for st in stations if "id" in st]
-                if ids:
-                    return max(ids) + 1
-        except Exception as e:
-            log.warning(f"Failed to fetch stations from broker: {e!r}")
-
-        try:
-            r = await client.get(f"{GATEWAY_URL}/api/stations", timeout=5.0)
-            r.raise_for_status()
-            stations = r.json()
-            if stations:
-                ids = [int(st["id"]) for st in stations if "id" in st]
-                if ids:
-                    return max(ids) + 1
-        except Exception as e:
-            log.warning(f"Failed to fetch stations from gateway: {e!r}")
-
-        return abs(zlib.crc32(fallback_name.encode("utf-8")) & 0x7FFFFFFF)
-
-
-def _default_modules() -> Dict[str, ModuleState]:
-    names = ["temperature", "wind", "rain", "snow"]
-    return {name: ModuleState(health=100.0, failed=False) for name in names}
+async def _station_exists(name: str, lat: float, lon: float) -> bool:
+    try:
+        async with CLIENT_SESSION.get(f"{BROKER_URL}/api/state") as resp:
+            resp.raise_for_status()
+            data = await resp.json()
+            stations = data.get("stations", [])
+        for st in stations:
+            if (
+                st.get("name") == name
+                and st.get("lat") == lat
+                and st.get("lon") == lon
+            ):
+                return True
+    except Exception as e:
+        log.warning(f"Failed to check existing stations: {e!r}")
+    return False
 
 async def _docker_request(
     method: str, path: str, *, params: dict | None = None, json_body: dict | None = None
-) -> httpx.Response:
+) -> SimpleResponse:
     versions = [DOCKER_API_VERSION, "v1.44", "v1.45", "v1.46"]
     seen = set()
-    last_response: httpx.Response | None = None
-    async with _docker_client() as client:
-        for version in versions:
-            if not version or version in seen:
-                continue
-            seen.add(version)
-            url = f"/{version}{path}"
-            r = await client.request(method, url, params=params, json=json_body)
-            last_response = r
-            if r.status_code != 400:
-                return r
-            if "too old" not in r.text:
-                return r
+    last_response: SimpleResponse | None = None
+    for version in versions:
+        if not version or version in seen:
+            continue
+        seen.add(version)
+        url = f"/{version}{path}"
+        async with DOCKER_SESSION.request(method, url, params=params, json=json_body) as resp:
+            text = await resp.text()
+            try:
+                data = json.loads(text) if text else None
+            except json.JSONDecodeError:
+                data = None
+            r = SimpleResponse(resp.status, text, data)
+        last_response = r
+        if r.status_code != 400:
+            return r
+        if "too old" not in r.text:
+            return r
     assert last_response is not None
     return last_response
 
@@ -156,7 +194,7 @@ def _pick_network(inspect: Dict[str, Any]) -> str:
     return "bridge"
 
 
-async def _docker_create_container(payload: Dict[str, Any], name: str) -> httpx.Response:
+async def _docker_create_container(payload: Dict[str, Any], name: str) -> SimpleResponse:
     return await _docker_request(
         "POST",
         "/containers/create",
@@ -180,22 +218,12 @@ async def _docker_remove_container(container_name: str) -> None:
         r.raise_for_status()
 
 
-async def _bootstrap_station(base_url: str, modules: Dict[str, ModuleState]) -> None:
-    payload = {
-        "modules": {k: v.model_dump(exclude_none=True) for k, v in modules.items()}
-    }
-    async with httpx.AsyncClient() as client:
-        for _ in range(12):
-            try:
-                r = await client.post(f"{base_url}/bootstrap", json=payload, timeout=5.0)
-                r.raise_for_status()
-                return
-            except Exception:
-                await asyncio.sleep(1.0)
-    raise HTTPException(status_code=502, detail="Station did not respond to bootstrap")
-
-
 async def _create_station(req: CreateStationRequest) -> CreateStationResponse:
+    if await _station_exists(req.name, req.lat, req.lon):
+        raise HTTPException(
+            status_code=409,
+            detail="Station with same name and coordinates already exists",
+        )
     gateway_container = await _find_compose_container("gateway")
     gateway_inspect = await _inspect_container(gateway_container["Id"])
     network_name = _pick_network(gateway_inspect)
@@ -205,7 +233,7 @@ async def _create_station(req: CreateStationRequest) -> CreateStationResponse:
 
     station_id = req.station_id
     if station_id is None:
-        station_id = await _next_station_id(req.name)
+        station_id = await _next_station_id()
 
     slug = _slugify(req.name)
     if not slug:
@@ -220,16 +248,17 @@ async def _create_station(req: CreateStationRequest) -> CreateStationResponse:
         f"STATION_LON={req.lon}",
         "PORT=9000",
     ]
-    modules = req.modules or _default_modules()
-
     container_id: str | None = None
     container_name: str | None = None
     base_url: str | None = None
-    last_conflict: httpx.Response | None = None
+    last_conflict: SimpleResponse | None = None
     for attempt in range(10):
         container_name = base_name if attempt == 0 else f"{base_name}-{attempt}"
         base_url = f"http://{container_name}:9000"
-        env = [*base_env, f"PUBLIC_BASE_URL={base_url}"]
+        env = [
+            *base_env,
+            f"PUBLIC_BASE_URL={base_url}",
+        ]
         payload = {
             "Image": image_name,
             "Cmd": ["python", "/app/service-station/server.py"],
@@ -262,7 +291,6 @@ async def _create_station(req: CreateStationRequest) -> CreateStationResponse:
         raise HTTPException(status_code=409, detail=detail)
 
     await _docker_start_container(container_id)
-    await _bootstrap_station(base_url, modules)
 
     return CreateStationResponse(ok=True, container_id=container_id, container_name=container_name)
 
@@ -272,7 +300,13 @@ async def create_station(
     reqs: List[CreateStationRequest],
 ) -> List[CreateStationResponse]:
     results: List[CreateStationResponse] = []
+    next_id: int | None = None
     for req in reqs:
+        if req.station_id is None:
+            if next_id is None:
+                next_id = await _next_station_id()
+            req = req.model_copy(update={"station_id": next_id})
+            next_id += 1
         results.append(await _create_station(req))
     return results
 
@@ -280,7 +314,7 @@ async def create_station(
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ["ORCHESTRATOR_PORT"])
+    port = get_env_int("ORCHESTRATOR_PORT")
     uvicorn.run(
         app,
         host="0.0.0.0",

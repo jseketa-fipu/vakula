@@ -36,7 +36,7 @@ export ORCHESTRATOR_PORT=8003
 
 ## Run
 ```bash
-python server.py
+PYTHONPATH=.. python server.py
 ```
 
 ## API Docs

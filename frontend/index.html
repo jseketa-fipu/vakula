@@ -160,6 +160,8 @@
   const markerLayer = L.layerGroup().addTo(map);
   const markersById = new Map();
   const eventLines = [];
+  const pendingEvents = [];
+  let eventsScheduled = false;
 
   function colourForStatus(status) {
     switch (status) {
@@ -181,103 +183,149 @@
     }
   }
 
+  function markerDataKey(st) {
+    return [
+      st.lat,
+      st.lon,
+      st.status,
+      st.overall_health,
+      st.last_event || "",
+      st.name || "",
+    ].join("|");
+  }
+
   function updateMarkers(stations) {
-    markerLayer.clearLayers();
-    markersById.clear();
+    const nextIds = new Set();
 
     stations.forEach(st => {
       if (st.lat == null || st.lon == null) return;
+      nextIds.add(st.id);
+
+      const key = markerDataKey(st);
+      const existing = markersById.get(st.id);
+      if (existing && existing.key === key) {
+        return;
+      }
+
       const color = colourForStatus(st.status);
-      const marker = L.circleMarker([st.lat, st.lon], {
-        radius: 7,
-        weight: 1,
-        color: "#000000",
-        fillColor: color,
-        fillOpacity: 0.9,
-      }).addTo(markerLayer);
+      if (existing) {
+        existing.marker.setLatLng([st.lat, st.lon]);
+        existing.marker.setStyle({ fillColor: color });
+      } else {
+        const marker = L.circleMarker([st.lat, st.lon], {
+          radius: 7,
+          weight: 1,
+          color: "#000000",
+          fillColor: color,
+          fillOpacity: 0.9,
+        }).addTo(markerLayer);
+        markersById.set(st.id, { marker, key });
+      }
 
       let popupHtml = "<strong>" + st.name + "</strong><br/>";
       popupHtml += "Health: " + st.overall_health.toFixed(1) + "%<br/>";
       if (st.last_event) {
         popupHtml += "<small>" + st.last_event + "</small>";
       }
-      marker.bindPopup(popupHtml);
-      markersById.set(st.id, marker);
+      markersById.get(st.id).marker.bindPopup(popupHtml);
+      markersById.get(st.id).key = key;
     });
+
+    for (const [id, entry] of markersById.entries()) {
+      if (!nextIds.has(id)) {
+        markerLayer.removeLayer(entry.marker);
+        markersById.delete(id);
+      }
+    }
+  }
+
+  const MODULE_LABELS = {
+    1: "temperature",
+    2: "wind",
+    3: "rain",
+    4: "snow",
+  };
+
+  function moduleLabel(moduleId) {
+    const id = Number(moduleId);
+    return MODULE_LABELS[id] || "module-" + moduleId;
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll("\"", "&quot;")
+      .replaceAll("'", "&#039;");
   }
 
   function updateSidebar(stations) {
-    stationsList.innerHTML = "";
-    stations
+    const cards = stations
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, "hr"))
-      .forEach(st => {
-        const card = document.createElement("div");
-        card.className = "station-card";
-
-        const nameRow = document.createElement("div");
-        nameRow.className = "station-name";
-        const nameSpan = document.createElement("span");
-        nameSpan.textContent = st.name;
-
-        const badge = document.createElement("span");
-        badge.className = badgeClass(st.status);
-        badge.textContent = st.status;
-
-        nameRow.appendChild(nameSpan);
-        nameRow.appendChild(badge);
-        card.appendChild(nameRow);
-
-        const modulesDiv = document.createElement("div");
-        modulesDiv.className = "modules";
+      .map(st => {
         const modules = st.modules || {};
-        for (const [mName, m] of Object.entries(modules)) {
-          const chip = document.createElement("div");
-          chip.className = "module-chip";
-          const label = document.createElement("span");
-          label.textContent = mName + ": ";
-          const value = document.createElement("span");
-          value.className = "value";
-          value.textContent = m.health.toFixed(0) + "%";
-          chip.appendChild(label);
-          chip.appendChild(value);
-          modulesDiv.appendChild(chip);
-        }
-        card.appendChild(modulesDiv);
+        const moduleChips = Object.entries(modules)
+          .map(([mId, m]) => (
+            "<div class=\"module-chip\">" +
+              "<span>" + escapeHtml(moduleLabel(mId)) + ": </span>" +
+              "<span class=\"value\">" + Number(m.health).toFixed(0) + "%</span>" +
+            "</div>"
+          ))
+          .join("");
 
-        if (st.last_event) {
-          const ev = document.createElement("div");
-          ev.style.marginTop = "0.2rem";
-          ev.style.fontSize = "0.7rem";
-          ev.style.opacity = "0.85";
-          ev.textContent = st.last_event;
-          card.appendChild(ev);
-        }
+        const lastEvent = st.last_event
+          ? "<div style=\"margin-top:0.2rem;font-size:0.7rem;opacity:0.85;\">" +
+              escapeHtml(st.last_event) +
+            "</div>"
+          : "";
 
-        stationsList.appendChild(card);
-      });
+        return (
+          "<div class=\"station-card\">" +
+            "<div class=\"station-name\">" +
+              "<span>" + escapeHtml(st.name) + "</span>" +
+              "<span class=\"" + badgeClass(st.status) + "\">" + escapeHtml(st.status) + "</span>" +
+            "</div>" +
+            "<div class=\"modules\">" + moduleChips + "</div>" +
+            lastEvent +
+          "</div>"
+        );
+      })
+      .join("");
+
+    stationsList.innerHTML = cards;
+  }
+
+  function renderEvents() {
+    if (pendingEvents.length === 0) {
+      eventsScheduled = false;
+      return;
+    }
+    pendingEvents.forEach(line => {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString();
+      eventLines.unshift({ time: timeStr, text: line });
+    });
+    pendingEvents.length = 0;
+    while (eventLines.length > 50) {
+      eventLines.pop();
+    }
+    eventsBox.innerHTML = eventLines.map(ev => (
+      "<div class=\"event-line\">" +
+        "<span class=\"event-time\">[" + escapeHtml(ev.time) + "]</span>" +
+        "<span> " + escapeHtml(ev.text) + "</span>" +
+      "</div>"
+    )).join("");
+    eventsScheduled = false;
   }
 
   function pushEvent(line) {
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString();
-    eventLines.unshift({ time: timeStr, text: line });
-    if (eventLines.length > 50) {
-      eventLines.pop();
+    pendingEvents.push(line);
+    if (!eventsScheduled) {
+      eventsScheduled = true;
+      setTimeout(renderEvents, 250);
     }
-    eventsBox.innerHTML = "";
-    eventLines.forEach(ev => {
-      const div = document.createElement("div");
-      div.className = "event-line";
-      const t = document.createElement("span");
-      t.className = "event-time";
-      t.textContent = "[" + ev.time + "]";
-      const txt = document.createElement("span");
-      txt.textContent = " " + ev.text;
-      div.appendChild(t);
-      div.appendChild(txt);
-      eventsBox.appendChild(div);
-    });
   }
 
   function connectWs() {

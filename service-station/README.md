@@ -37,7 +37,7 @@ export PORT=9000
 
 ## Run
 ```bash
-python server.py
+PYTHONPATH=.. python server.py
 ```
 
 ## API Docs
@@ -46,4 +46,3 @@ FastAPI docs: `http://localhost:9000/docs`
 ## Key Endpoints
 - `GET /state`
 - `POST /adjust` (negative = degrade, positive = repair)
-- `POST /bootstrap`

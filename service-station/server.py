@@ -1,50 +1,35 @@
-from __future__ import annotations
-
 import asyncio
 import random
-import logging
 import os
-import zlib
 from contextlib import asynccontextmanager
 from typing import Dict
 
-import httpx
+import aiohttp
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from vakula_common.http import create_session
+from vakula_common.logging import make_logger, setup_logger
+from vakula_common.models import AdjustRequest, ModuleState, StationState
+from vakula_common.modules import MODULE_IDS, module_name
+from vakula_common.env import get_env_int, get_env_optional_float, get_env_str
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[STATION] %(message)s",  # only standard fields: no %(station_name)s etc.
-)
-log = logging.getLogger(__name__)
-
-
-def make_logger(station_name: str):
-    class StationAdapter(logging.LoggerAdapter):
-        def process(self, msg, kwargs):
-            kwargs.setdefault("extra", {})
-            kwargs["extra"]["station"] = station_name
-            return msg, kwargs
-
-    return StationAdapter(log, {})
+log = setup_logger("STATION")
 
 
-GATEWAY_URL = os.environ["GATEWAY_URL"]
-BROKER_URL = os.environ["BROKER_URL"]
-STATION_NAME = os.environ["STATION_NAME"]
-PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"]
-PORT = int(os.environ["PORT"])
-STATION_LAT = os.environ["STATION_LAT"]
-STATION_LON = os.environ["STATION_LON"]
-
-MODULE_NAMES = ["temperature", "wind", "rain", "snow"]
+GATEWAY_URL = get_env_str("GATEWAY_URL")
+BROKER_URL = get_env_str("BROKER_URL")
+STATION_NAME = get_env_str("STATION_NAME")
+PUBLIC_BASE_URL = get_env_str("PUBLIC_BASE_URL")
+PORT = get_env_int("PORT")
+STATION_LAT = get_env_optional_float("STATION_LAT")
+STATION_LON = get_env_optional_float("STATION_LON")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global STATION_ID, logger
+    global STATION_ID, logger, CLIENT_SESSION
     STATION_ID = _resolve_station_id()
-    logger = make_logger(f"{STATION_NAME}#{STATION_ID}")
+    logger = make_logger(log, f"{STATION_NAME}#{STATION_ID}")
     logger.info(f"Station startup id={STATION_ID}")
+    CLIENT_SESSION = create_session(5)
     await notify_broker()
     register_task = asyncio.create_task(register_with_gateway_loop())
     heartbeat_task = asyncio.create_task(heartbeat_loop())
@@ -54,57 +39,20 @@ async def lifespan(app: FastAPI):
         for task in (register_task, heartbeat_task):
             task.cancel()
         await asyncio.gather(register_task, heartbeat_task, return_exceptions=True)
+        if CLIENT_SESSION:
+            await CLIENT_SESSION.close()
 
 
 app = FastAPI(title=f"Station {STATION_NAME}", lifespan=lifespan)
 
 STATION_ID: int | None = None
 GATEWAY_REGISTERED: bool = False
-logger = make_logger(STATION_NAME)
+logger = make_logger(log, STATION_NAME)
+CLIENT_SESSION: aiohttp.ClientSession | None = None
 
 
-class ModuleState(BaseModel):
-    health: float = 100.0
-    failed: bool = False
-
-
-class AdjustRequest(BaseModel):
-    module: str
-    amount: float
-    reason: str | None = None
-
-
-class StationState(BaseModel):
-    station_id: int
-    name: str
-    lat: float | None = None
-    lon: float | None = None
-    modules: Dict[str, ModuleState]
-    last_event: str | None = None
-
-
-class BootstrapModuleState(BaseModel):
-    health: float | None = None
-    failed: bool | None = None
-
-
-class BootstrapRequest(BaseModel):
-    modules: Dict[str, BootstrapModuleState]
-    last_event: str | None = None
-
-
-modules: Dict[str, ModuleState] = {m: ModuleState() for m in MODULE_NAMES}
+modules: Dict[int, ModuleState] = {m_id: ModuleState() for m_id in MODULE_IDS}
 last_event: str | None = None
-
-
-def _parse_optional_float(value: str | None) -> float | None:
-    if value is None or value == "":
-        return None
-    try:
-        return float(value)
-    except ValueError:
-        logger.warning(f"Invalid float value: {value!r}")
-        return None
 
 
 async def notify_broker() -> None:
@@ -112,35 +60,42 @@ async def notify_broker() -> None:
     if STATION_ID is None:
         return
 
-    payload = StationState(
-        station_id=STATION_ID,
-        name=STATION_NAME,
-        lat=_parse_optional_float(STATION_LAT),
-        lon=_parse_optional_float(STATION_LON),
-        modules=modules,
-        last_event=last_event,
-    ).model_dump()
+    payload = _build_station_state().model_dump()
 
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                f"{BROKER_URL}/api/station-update",
-                json=payload,
-                timeout=5.0,
-            )
-            r.raise_for_status()
+        async with CLIENT_SESSION.post(
+            f"{BROKER_URL}/api/station-update",
+            json=payload,
+        ) as resp:
+            resp.raise_for_status()
     except Exception as e:
         logger.warning(f"Failed to notify broker: {e!r}")
 
 
-def _get_module_or_404(name: str) -> ModuleState:
-    if name not in modules:
-        raise HTTPException(status_code=404, detail=f"Unknown module {name}")
-    return modules[name]
+def _get_module_or_404(module_id: int) -> ModuleState:
+    if module_id not in modules:
+        raise HTTPException(status_code=404, detail=f"Unknown module id {module_id}")
+    return modules[module_id]
+
+
 
 
 def _resolve_station_id() -> int:
-    return int(os.environ["STATION_ID"])
+    return get_env_int("STATION_ID")
+
+
+def _build_station_state() -> StationState:
+    assert STATION_ID is not None
+    return StationState(
+        station_id=STATION_ID,
+        name=STATION_NAME,
+        lat=STATION_LAT,
+        lon=STATION_LON,
+        modules=modules,
+        last_event=last_event,
+    )
+
+
 
 
 async def register_with_gateway() -> bool:
@@ -148,22 +103,19 @@ async def register_with_gateway() -> bool:
         "station_id": STATION_ID,
         "name": STATION_NAME,
         "base_url": PUBLIC_BASE_URL,
-        "tags": [],
     }
-    async with httpx.AsyncClient() as client:
-        r = await client.post(
-            f"{GATEWAY_URL}/api/register",
-            json=payload,
-            timeout=5.0,
+    async with CLIENT_SESSION.post(
+        f"{GATEWAY_URL}/api/register",
+        json=payload,
+    ) as resp:
+        resp.raise_for_status()
+        data = await resp.json()
+    gateway_id = int(data["id"])
+    if STATION_ID is not None and gateway_id != STATION_ID:
+        logger.warning(
+            f"Gateway assigned different station_id={gateway_id} (local={STATION_ID})"
         )
-        r.raise_for_status()
-        data = r.json()
-        gateway_id = int(data["id"])
-        if STATION_ID is not None and gateway_id != STATION_ID:
-            logger.warning(
-                f"Gateway assigned different station_id={gateway_id} (local={STATION_ID})"
-            )
-        return True
+    return True
 
 
 async def register_with_gateway_loop() -> None:
@@ -176,7 +128,7 @@ async def register_with_gateway_loop() -> None:
                 return
         except Exception as e:
             logger.warning(f"Gateway registration failed: {e!r}")
-        await asyncio.sleep(3.0)
+        await asyncio.sleep(3)
 
 
 async def heartbeat_loop() -> None:
@@ -185,41 +137,31 @@ async def heartbeat_loop() -> None:
         return
 
     # Stagger startup to avoid thundering-herd heartbeat bursts.
-    await asyncio.sleep(random.uniform(1.0, 15.0))
+    await asyncio.sleep(random.randint(1, 15))
 
-    async with httpx.AsyncClient() as client:
-        while True:
-            try:
-                if not GATEWAY_REGISTERED:
-                    await asyncio.sleep(1.0)
-                    continue
-                r = await client.post(
-                    f"{GATEWAY_URL}/api/stations/{STATION_ID}/heartbeat",
-                    json={},
-                    timeout=5.0,
-                )
-                if r.status_code == 404:
+    while True:
+        try:
+            if not GATEWAY_REGISTERED:
+                await asyncio.sleep(1)
+                continue
+            async with CLIENT_SESSION.post(
+                f"{GATEWAY_URL}/api/stations/{STATION_ID}/heartbeat",
+                json={},
+            ) as resp:
+                if resp.status == 404:
                     logger.warning("Gateway lost station registration; re-registering.")
                     await register_with_gateway()
                     continue
-                r.raise_for_status()
-                await notify_broker()
-            except Exception as e:
-                logger.warning(f"Heartbeat failed: {e!r}")
-            await asyncio.sleep(10.0)
+                resp.raise_for_status()
+            await notify_broker()
+        except Exception as e:
+            logger.warning(f"Heartbeat failed: {e!r}")
+        await asyncio.sleep(10)
 
 
 @app.get("/state", response_model=StationState)
 async def get_state() -> StationState:
-    assert STATION_ID is not None
-    return StationState(
-        station_id=STATION_ID,
-        name=STATION_NAME,
-        lat=_parse_optional_float(STATION_LAT),
-        lon=_parse_optional_float(STATION_LON),
-        modules=modules,
-        last_event=last_event,
-    )
+    return _build_station_state()
 
 
 @app.post("/adjust")
@@ -228,37 +170,19 @@ async def apply_adjust(req: AdjustRequest) -> dict:
     m = _get_module_or_404(req.module)
 
     old = m.health
-    m.health = min(100.0, max(0.0, m.health + req.amount))
-    m.failed = m.health <= 0.0
+    m.health = min(100, max(0, m.health + req.amount))
+    m.failed = m.health <= 0
 
+    mod_name = module_name(req.module)
     if req.amount < 0:
         delta = abs(req.amount)
-        last_event = req.reason or f"{req.module} degraded by {delta:.1f}%"
+        last_event = req.reason or f"{mod_name} degraded by {delta}%"
     else:
-        last_event = req.reason or f"{req.module} repaired by {req.amount:.1f}%"
-    logger.info(last_event + f" (health {old:.1f} -> {m.health:.1f})")
+        last_event = req.reason or f"{mod_name} repaired by {req.amount}%"
+    logger.info(last_event + f" (health {old} -> {m.health})")
 
     await notify_broker()
     return {"ok": True, "health": m.health, "failed": m.failed}
-
-
-@app.post("/bootstrap")
-async def bootstrap(req: BootstrapRequest) -> dict:
-    global last_event
-    for name, incoming in req.modules.items():
-        m = _get_module_or_404(name)
-        if incoming.health is not None:
-            m.health = max(0.0, min(100.0, incoming.health))
-            if incoming.failed is None:
-                m.failed = m.health <= 0.0
-        if incoming.failed is not None:
-            m.failed = incoming.failed
-
-    if req.last_event:
-        last_event = req.last_event
-
-    await notify_broker()
-    return {"ok": True}
 
 
 def main() -> None:

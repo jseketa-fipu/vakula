@@ -27,7 +27,7 @@ services:
     command: python /app/service-degrader/server.py
     environment:
       - GATEWAY_URL=http://gateway:8000
-      - TICK_SECONDS=5.0
+      - TICK_SECONDS=5
     depends_on:
       - gateway
     restart: unless-stopped

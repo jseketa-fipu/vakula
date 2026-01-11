@@ -1,31 +1,34 @@
-from __future__ import annotations
-
 import asyncio
 import json
-import logging
-import os
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Dict, List
 from contextlib import asynccontextmanager
 
-import httpx
+import aiohttp
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from vakula_common.http import create_session
+from vakula_common.logging import setup_logger
+from vakula_common.models import StationState
+from vakula_common.env import get_env_int, get_env_str
 
-logging.basicConfig(level=logging.INFO, format="[BROKER] %(message)s")
-log = logging.getLogger(__name__)
+log = setup_logger("BROKER")
+
+CLIENT_SESSION: aiohttp.ClientSession | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    load_station_meta()
+    global CLIENT_SESSION
+    CLIENT_SESSION = create_session(10)
     task = asyncio.create_task(stale_broadcast_loop())
     try:
         yield
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
+        if CLIENT_SESSION:
+            await CLIENT_SESSION.close()
 
 
 app = FastAPI(title="Vakula Broker", lifespan=lifespan)
@@ -39,48 +42,21 @@ app.add_middleware(
 )
 
 
-class BrokerModuleState(BaseModel):
-    health: float
-    failed: bool = False
-
-
-class StationUpdate(BaseModel):
-    station_id: int
-    name: str
-    lat: float | None = None
-    lon: float | None = None
-    modules: Dict[str, BrokerModuleState]
-    last_event: str | None = None
-
-
 stations: Dict[int, Dict[str, Any]] = {}
-station_meta_by_name: Dict[str, Dict[str, float]] = {}
 
 state_lock = asyncio.Lock()
 connections: List[WebSocket] = []
-STALE_TIMEOUT = int(os.environ["BROKER_STALE_SECONDS"])
-TELEGRAM_URL = os.environ["TELEGRAM_URL"]
+STALE_TIMEOUT = get_env_int("BROKER_STALE_SECONDS")
+TELEGRAM_URL = get_env_str("TELEGRAM_URL")
 ALERT_STATUSES = {"warn", "bad", "critical", "offline"}
 
 
-def load_station_meta() -> None:
-    global station_meta_by_name
-    data_path = Path(__file__).parent / "data" / "croatia_stations.json"
-    if not data_path.exists():
-        log.warning("croatia_stations.json not found; map will have no coordinates")
-        station_meta_by_name = {}
-        return
-    data = json.loads(data_path.read_text(encoding="utf-8"))
-    station_meta_by_name = {item["name"]: {"lat": item["lat"], "lon": item["lon"]} for item in data}
-    log.info(f"Loaded {len(station_meta_by_name)} station metadata entries")
-
-
-def _evaluate_station(st: Dict[str, Any], now: datetime) -> tuple[str, str | None, float, bool]:
+def _evaluate_station(st: Dict[str, Any], now: datetime) -> tuple[str, str | None, int, bool]:
     modules = st.get("modules", {})
-    worst_health = 100.0
+    worst_health = 100
     worst_name: str | None = None
     for name, mod in modules.items():
-        health = float(mod.get("health", 100.0))
+        health = int(mod.get("health", 100))
         if health < worst_health:
             worst_health = health
             worst_name = name
@@ -93,11 +69,11 @@ def _evaluate_station(st: Dict[str, Any], now: datetime) -> tuple[str, str | Non
     status = "ok"
     if stale:
         status = "offline"
-    elif worst_health <= 20.0:
+    elif worst_health <= 20:
         status = "critical"
-    elif worst_health <= 50.0:
+    elif worst_health <= 50:
         status = "bad"
-    elif worst_health <= 80.0:
+    elif worst_health <= 80:
         status = "warn"
 
     return status, worst_name, worst_health, stale
@@ -108,21 +84,20 @@ async def _send_telegram_message(message: str) -> None:
         return
     payload = {"message": message}
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(f"{TELEGRAM_URL}/api/send", json=payload, timeout=10.0)
-            r.raise_for_status()
-    except httpx.HTTPError as e:
+        async with CLIENT_SESSION.post(f"{TELEGRAM_URL}/api/send", json=payload) as resp:
+            resp.raise_for_status()
+    except aiohttp.ClientError as e:
         log.warning(f"Failed to notify telegram: {e!r}")
 
 
 def _format_alert_message(
-    st: Dict[str, Any], status: str, worst_name: str | None, worst_health: float
+    st: Dict[str, Any], status: str, worst_name: str | None, worst_health: int
 ) -> str:
     name = st.get("name", f"Station {st.get('id', '?')}")
     if status == "offline":
         module_info = f"no updates for {STALE_TIMEOUT}s"
     elif worst_name:
-        module_info = f"{worst_name} {worst_health:.1f}%"
+        module_info = f"{worst_name} {worst_health}%"
     else:
         module_info = "no module data"
     return f"{name}: {status.upper()} ({module_info})"
@@ -135,9 +110,8 @@ def compute_world_state() -> Dict[str, Any]:
         status, _, worst, stale = _evaluate_station(st, now)
         modules = st.get("modules", {})
 
-        meta = station_meta_by_name.get(st.get("name", ""))
-        lat = st.get("lat", meta["lat"] if meta else None)
-        lon = st.get("lon", meta["lon"] if meta else None)
+        lat = st.get("lat")
+        lon = st.get("lon")
 
         items.append(
             {
@@ -147,7 +121,7 @@ def compute_world_state() -> Dict[str, Any]:
                 "lon": lon,
                 "modules": modules,
                 "last_event": st.get("last_event"),
-                "overall_health": 0.0 if stale else worst,
+                "overall_health": 0 if stale else worst,
                 "status": status,
             }
         )
@@ -173,7 +147,7 @@ async def broadcast_state() -> None:
 
 async def stale_broadcast_loop() -> None:
     while True:
-        await asyncio.sleep(5.0)
+        await asyncio.sleep(5)
         notify_messages: List[str] = []
         async with state_lock:
             now = datetime.now(timezone.utc)
@@ -196,22 +170,16 @@ async def stale_broadcast_loop() -> None:
 
 
 @app.post("/api/station-update")
-async def station_update(update: StationUpdate) -> Dict[str, Any]:
+async def station_update(update: StationState) -> Dict[str, Any]:
     notify_message: str | None = None
     async with state_lock:
         now = datetime.now(timezone.utc)
         st = stations.get(update.station_id)
         if not st:
             st = {"id": update.station_id, "name": update.name, "modules": {}}
-            meta = station_meta_by_name.get(update.name)
-        else:
-            meta = None
 
         st["name"] = update.name
         st["last_update"] = now
-        if meta:
-            st["lat"] = meta["lat"]
-            st["lon"] = meta["lon"]
         if update.lat is not None:
             st["lat"] = update.lat
         if update.lon is not None:
@@ -272,7 +240,7 @@ async def websocket_endpoint(websocket: WebSocket):
 def main() -> None:
     import uvicorn
 
-    port = int(os.environ["BROKER_PORT"])
+    port = get_env_int("BROKER_PORT")
     uvicorn.run(
         app,
         host="0.0.0.0",
