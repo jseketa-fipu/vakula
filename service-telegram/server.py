@@ -27,7 +27,6 @@ app = FastAPI(title="Vakula Telegram Notifier", lifespan=lifespan)
 
 TELEGRAM_BOT_TOKEN = get_env_str("TELEGRAM_BOT_TOKEN")
 # https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id
-DEFAULT_CHAT_ID = get_env_str("TELEGRAM_CHAT_ID")
 
 
 class SendMessageRequest(BaseModel):
@@ -42,12 +41,10 @@ class SendMessageResponse(BaseModel):
 
 
 def _get_chat_id(request: SendMessageRequest) -> str:
-    # Pick the requested chat_id or fall back to the default.
-    # This allows per-message overrides if needed.
-    chat_id = request.chat_id or DEFAULT_CHAT_ID
-    if not chat_id:
+    # Require an explicit chat_id for each request.
+    if not request.chat_id:
         raise HTTPException(status_code=400, detail="chat_id is required")
-    return chat_id
+    return request.chat_id
 
 
 @app.post("/api/send", response_model=SendMessageResponse)
