@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from contextlib import asynccontextmanager
 
 import aiohttp
+import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from vakula_common.http import create_session
@@ -274,8 +275,6 @@ async def websocket_endpoint(websocket: WebSocket):
 def main() -> None:
     # Run the API server.
     # Starts FastAPI + WebSocket server.
-    import uvicorn
-
     port = get_env_int("BROKER_PORT")
     uvicorn.run(
         app,

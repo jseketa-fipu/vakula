@@ -1,4 +1,5 @@
 import aiohttp
+import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -73,8 +74,6 @@ async def send_message(request: SendMessageRequest) -> SendMessageResponse:
 
 def main() -> None:
     # Run the API server.
-    import uvicorn
-
     port = get_env_int("TELEGRAM_SERVICE_PORT")
     uvicorn.run(
         app,

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Dict
 
 import aiohttp
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from vakula_common.http import create_session
 from vakula_common.logging import make_logger, setup_logger
@@ -208,8 +209,6 @@ async def apply_adjust(request: AdjustRequest) -> dict:
 def main() -> None:
     # Run the API server.
     # Station containers call this on startup.
-    import uvicorn
-
     uvicorn.run(
         app,
         host="0.0.0.0",

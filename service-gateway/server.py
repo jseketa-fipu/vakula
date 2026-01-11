@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
 import aiohttp
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -155,8 +156,6 @@ async def gateway_adjust(station_id: int, cmd: AdjustCommand) -> dict:
 def main() -> None:
     # Run the API server.
     # Uvicorn handles FastAPI's async app.
-    import uvicorn
-
     port = get_env_int("GATEWAY_PORT")
     uvicorn.run(
         app,

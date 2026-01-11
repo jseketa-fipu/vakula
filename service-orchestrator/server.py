@@ -6,6 +6,7 @@ import unicodedata
 from typing import Any, Dict, List
 
 import aiohttp
+import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -340,8 +341,6 @@ async def create_station(
 def main() -> None:
     # Run the API server.
     # Uvicorn handles the async event loop and HTTP server.
-    import uvicorn
-
     port = get_env_int("ORCHESTRATOR_PORT")
     uvicorn.run(
         app,
