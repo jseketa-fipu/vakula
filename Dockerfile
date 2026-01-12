@@ -16,5 +16,3 @@ COPY service-orchestrator ./service-orchestrator
 COPY vakula_common ./vakula_common
 
 RUN pip install --no-cache-dir "fastapi>=0.122.0,<0.123.0"     "uvicorn[standard]>=0.38.0,<0.39.0"     "aiohttp>=3.9.5,<4.0.0"
-
-CMD ["python", "/app/service-broker/server.py"]
