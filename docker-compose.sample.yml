@@ -15,7 +15,7 @@ services:
     command: python /app/service-broker/server.py
     environment:
       - BROKER_PORT=8001
-      - BROKER_STALE_SECONDS=30
+      - BROKER_STALE_SECONDS=60
       - TELEGRAM_URL=http://telegram:8002
     ports:
       - "8001:8001"

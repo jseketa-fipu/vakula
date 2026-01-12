@@ -21,7 +21,7 @@ Set required environment variables before running:
 Example:
 ```bash
 export BROKER_PORT=8001
-export BROKER_STALE_SECONDS=30
+export BROKER_STALE_SECONDS=60
 export TELEGRAM_URL=http://localhost:8002
 ```
 
