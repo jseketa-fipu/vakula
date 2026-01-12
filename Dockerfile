@@ -6,7 +6,6 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-COPY README.md ./
 COPY service-gateway ./service-gateway
 COPY service-station ./service-station
 COPY service-broker ./service-broker
