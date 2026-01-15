@@ -22,13 +22,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Vakula Telegram Notifier", lifespan=lifespan)
 
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 # https://stackoverflow.com/questions/32423837/telegram-bot-how-to-get-a-group-chat-id
 
 
 class SendMessageRequest(BaseModel):
     message: str
-    chat_id: str
+    chat_id: str | None = None
     parse_mode: str | None = None
 
 
@@ -44,6 +45,17 @@ def _require_telegram_token() -> str:
     return TELEGRAM_BOT_TOKEN
 
 
+def _resolve_chat_id(request: SendMessageRequest) -> str:
+    # Prefer request chat_id, fallback to configured default.
+    chat_id = request.chat_id or TELEGRAM_CHAT_ID
+    if not chat_id:
+        raise HTTPException(
+            status_code=500,
+            detail="TELEGRAM_CHAT_ID is not set and no chat_id was provided",
+        )
+    return chat_id
+
+
 @app.post("/api/send", response_model=SendMessageResponse)
 async def send_message(
     request: SendMessageRequest,
@@ -51,7 +63,8 @@ async def send_message(
 ) -> SendMessageResponse:
     # Send a message to the Telegram Bot API.
     # This service is a thin wrapper around Telegram's HTTP endpoint.
-    payload = {"chat_id": request.chat_id, "text": request.message}
+    chat_id = _resolve_chat_id(request)
+    payload = {"chat_id": chat_id, "text": request.message}
     if request.parse_mode:
         payload["parse_mode"] = request.parse_mode
 
@@ -69,11 +82,10 @@ async def send_message(
 
 def main() -> None:
     # Run the API server.
-    port = int(os.environ["TELEGRAM_SERVICE_PORT"])
     uvicorn.run(
         app,
         host="0.0.0.0",
-        port=port,
+        port=int(os.environ["TELEGRAM_SERVICE_PORT"]),
         reload=False,
     )
 
